@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS statutes (
     content_hash    TEXT NOT NULL,
     source_url      TEXT NOT NULL,
     scraped_at      TEXT NOT NULL,
-    scrape_run_id   INTEGER REFERENCES scrape_runs(id)
+    scrape_run_id   INTEGER REFERENCES scrape_runs(id),
+    attachments     TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_statutes_unique
@@ -53,7 +54,8 @@ CREATE TABLE IF NOT EXISTS admin_rules (
     content_hash    TEXT NOT NULL,
     source_url      TEXT NOT NULL,
     scraped_at      TEXT NOT NULL,
-    scrape_run_id   INTEGER REFERENCES scrape_runs(id)
+    scrape_run_id   INTEGER REFERENCES scrape_runs(id),
+    attachments     TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_rules_unique
@@ -95,8 +97,21 @@ CREATE TABLE IF NOT EXISTS integrity_log (
 
 
 async def init_db() -> None:
-    """Create the database and all tables if they don't exist."""
+    """Create the database and all tables if they don't exist, and handle migrations."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(DDL)
+        
+        # Check if 'attachments' column exists in 'statutes'
+        async with db.execute("PRAGMA table_info(statutes)") as cursor:
+            cols = [row[1] for row in await cursor.fetchall()]
+            if "attachments" not in cols:
+                await db.execute("ALTER TABLE statutes ADD COLUMN attachments TEXT")
+                
+        # Check if 'attachments' column exists in 'admin_rules'
+        async with db.execute("PRAGMA table_info(admin_rules)") as cursor:
+            cols = [row[1] for row in await cursor.fetchall()]
+            if "attachments" not in cols:
+                await db.execute("ALTER TABLE admin_rules ADD COLUMN attachments TEXT")
+        
         await db.commit()

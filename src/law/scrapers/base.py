@@ -11,6 +11,7 @@ from typing import Any
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from law.config import DEFAULT_TIMEOUT_MS, HEADLESS, MAX_RETRIES, NAVIGATION_DELAY_SEC
+from law.models.schemas import Attachment
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,54 @@ class BaseScraper(ABC):
     async def get_page_content(self) -> str:
         """Return the full HTML of the current page."""
         return await self.page.content()
+
+    async def _scrape_attachments(self) -> list[Attachment]:
+        """Navigate to [별표/서식] tab and collect PDF/HWP links from law.go.kr pages."""
+        results: list[Attachment] = []
+        try:
+            # Common tab pattern for law.go.kr (Tab 2 is usually annexes)
+            # Try both text match and common ID
+            tab = await self.page.query_selector("text='별표/서식'") or await self.page.query_selector("#tabSms_2")
+            if not tab:
+                return []
+
+            await tab.click()
+            # Wait for content inside or the specific list container
+            try:
+                await self.page.wait_for_selector(".ls_sms_list li, #smsBody li", timeout=5000)
+            except Exception:
+                # If no list items, maybe they are empty
+                pass
+
+            items = await self.page.query_selector_all(".ls_sms_list li, #smsBody li")
+            for item in items:
+                label_el = await item.query_selector("dt") or item
+                label = (await label_el.inner_text()).strip().split("\n")[0]
+
+                # PDF icon: class ico_pdf or icon with alt 'pdf'
+                pdf_el = await item.query_selector("a.ico_pdf, a[title*='PDF'], a[title*='pdf']")
+                hwp_el = await item.query_selector("a.ico_hwp, a[title*='HWP'], a[title*='hwp']")
+
+                pdf_url = await pdf_el.get_attribute("href") if pdf_el else None
+                hwp_url = await hwp_el.get_attribute("href") if hwp_el else None
+
+                if pdf_url:
+                    # User: "pdf가 우선으로 받고"
+                    results.append(Attachment(name=label, pdf_url=pdf_url, has_pdf_priority=True))
+                elif hwp_url:
+                    # User: "pdf가 없는 경우 hwp를 받지 말고 그냥 로그나 알림을 줬으면 좋겠어"
+                    logger.warning("%s: '%s' has NO PDF. Skipping HWP download as requested. (HWP URL available)", self.name, label)
+                    results.append(Attachment(name=label, hwp_url=hwp_url, has_pdf_priority=False))
+
+            # Important: Switch back to [본문] tab for article extraction
+            main_tab = await self.page.query_selector("text='본문'") or await self.page.query_selector("#tabSms_1")
+            if main_tab:
+                await main_tab.click()
+                await asyncio.sleep(2)
+        except Exception:
+            logger.debug("%s: error during attachment scraping", self.name, exc_info=True)
+
+        return results
 
     # ── Abstract interface ─────────────────────────────────────────────
 

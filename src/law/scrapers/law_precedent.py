@@ -32,91 +32,96 @@ class LawPrecedentScraper(BaseScraper):
         self.name = SOURCE_KEY
         self.source_url = src["url"]
 
+    # Detail page base URL confirmed via live testing (2026-03-07)
+    _DETAIL_BASE = "https://www.law.go.kr/precInfoP.do?mode=0&precSeq={prec_seq}"
+    # Keyword that switches results from tax-only defaults to general court (형사) precedents
+    _SEARCH_KEYWORD = "형사"
+
     async def validate_page_loaded(self) -> bool:
-        el = await self.page.query_selector("#precSrchResult") or await self.page.query_selector(".srch_list")
+        el = await self.page.query_selector("[id^='licPrec']") or await self.page.query_selector("#listDiv")
         if el is None:
-            raise SelectorNotFoundError(f"{self.name}: search result container not found")
+            raise SelectorNotFoundError(f"{self.name}: result container not found")
         return True
 
-    async def _setup_search(self) -> int:
-        """Navigate, set filters for criminal cases, execute search. Returns total result count."""
+    async def _setup_search(self) -> None:
+        """Navigate to precSc.do and search '형사' to surface court (not tax) precedents."""
         await self.safe_navigate(self.source_url)
+        await asyncio.sleep(3)
 
-        # Open advanced search and set criminal case filter
+        # The page default shows 최신 조세판례 (tax cases).
+        # Searching "형사" switches results to general court precedents with precView() links.
         try:
-            await self.page.click("#lbBtnSrch")  # 상세검색
-            await asyncio.sleep(0.5)
+            inner_input = await self.page.query_selector("#innerQuery")
+            if inner_input:
+                await inner_input.fill(self._SEARCH_KEYWORD)
+                await inner_input.press("Enter")
+                await asyncio.sleep(4)
+            else:
+                logger.warning("%s: #innerQuery not found — results may be tax-only", self.name)
         except Exception:
-            logger.debug("Advanced search panel may already be open")
+            logger.debug("%s: could not interact with #innerQuery", self.name)
 
-        # Set case type to 형사
-        try:
-            await self.page.select_option("#precKindSel", label="형사")
-        except Exception:
-            logger.warning("Could not set case type filter via select. Trying alternative approach.")
-            try:
-                await self.page.evaluate("document.querySelector('#precKindSel').value = '형사'")
-            except Exception:
-                logger.warning("Case type filter not available — proceeding without filter")
-
-        # Execute search
-        await self.page.click("#btnSearch")
-        await self.page.wait_for_selector(".srch_list", timeout=15_000)
-
-        # Parse total count
-        total_el = await self.page.query_selector(SELECTORS_LAW["total_count"])
-        if total_el:
-            total_text = await total_el.inner_text()
-            m = re.search(r"[\d,]+", total_text)
-            if m:
-                return int(m.group().replace(",", ""))
-        return 0
+        await self.page.wait_for_selector("[id^='licPrec']", timeout=15_000)
 
     async def scrape(self) -> AsyncGenerator[Precedent, None]:
-        total = await self._setup_search()
-        logger.info("%s: found %d total results", self.name, total)
+        await self._setup_search()
+        logger.info("%s: search complete, starting extraction", self.name)
 
         page_num = 1
         scraped = 0
 
         while True:
-            # Get all result links on current page
-            items = await self.page.query_selector_all(".srch_list .list_item a, .srch_list li a")
+            items = await self.page.query_selector_all("[id^='licPrec']")
             if not items:
                 break
 
-            hrefs: list[str] = []
             for item in items:
-                href = await item.get_attribute("href")
-                if href:
-                    hrefs.append(href)
+                link = await item.query_selector("a")
+                if not link:
+                    continue
 
-            for href in hrefs:
-                prec = await self._scrape_detail(href)
+                onclick = await link.get_attribute("onclick") or ""
+
+                # Skip external-site items (showExternalLink → taxlaw, etc.)
+                if "showExternalLink" in onclick:
+                    continue
+
+                # Extract precSeq from: javascript:precView('615731');return false;
+                m = re.search(r"precView\('(\d+)'\)", onclick)
+                if not m:
+                    continue
+
+                detail_url = self._DETAIL_BASE.format(prec_seq=m.group(1))
+                prec = await self._scrape_detail(detail_url)
                 if prec:
                     yield prec
                     scraped += 1
                     if scraped % 50 == 0:
-                        logger.info("%s: scraped %d / %d", self.name, scraped, total)
+                        logger.info("%s: scraped %d", self.name, scraped)
 
-            # Try next page
-            next_btn = await self.page.query_selector(SELECTORS_LAW["pagination_next"])
-            if not next_btn:
+            has_next = await self._go_next_page()
+            if not has_next:
                 break
-
-            is_disabled = await next_btn.get_attribute("class") or ""
-            if "disabled" in is_disabled:
-                break
-
             page_num += 1
-            await next_btn.click()
             await asyncio.sleep(NAVIGATION_DELAY_SEC)
-            await self.page.wait_for_selector(".srch_list", timeout=15_000)
+            await self.page.wait_for_selector("[id^='licPrec']", timeout=15_000)
 
         logger.info("%s: completed — %d precedents scraped", self.name, scraped)
 
+    async def _go_next_page(self) -> bool:
+        """Click the next unvisited page number in the AJAX pagination."""
+        try:
+            # Pagination: <ol><li class='on'>N</li><li><a href='#AJAX'>N+1</a></li>...
+            next_link = await self.page.query_selector(".paging ol li:not(.on) a")
+            if not next_link:
+                return False
+            await next_link.click()
+            return True
+        except Exception:
+            return False
+
     async def _scrape_detail(self, href: str) -> Precedent | None:
-        """Open a precedent detail page and extract data."""
+        """Open a precInfoP.do detail page and extract data."""
         try:
             url = href if href.startswith("http") else f"https://www.law.go.kr{href}"
             await self.safe_navigate(url)
@@ -124,14 +129,24 @@ class LawPrecedentScraper(BaseScraper):
             html = await self.get_page_content()
             soup = BeautifulSoup(html, "lxml")
 
-            # Extract case metadata
-            case_number = self._extract_text(soup, ".subtit1, .casenm, h2") or ""
+            # precInfoP.do uses #bodyContent as the main container
+            body = soup.select_one("#bodyContent")
+            if body is None:
+                return None
+
+            # Case number / name are in the page title area
+            case_number = self._extract_text(soup, ".casenm, .subtit1, h2.case_title") or ""
+            if not case_number.strip():
+                # Fall back to parsing from the page <title>
+                title_tag = soup.find("title")
+                if title_tag:
+                    case_number = title_tag.get_text().split("|")[0].strip()
             if not case_number.strip():
                 return None
 
-            case_name = self._extract_text(soup, ".subtit2, .casename")
-            court = self._extract_text(soup, ".court") or "대법원"
-            decision_date = self._parse_date(self._extract_text(soup, ".decision_date, .date"))
+            case_name = self._extract_text(soup, ".casename, .subtit2")
+            court = self._extract_text(soup, ".court, .court_nm") or "대법원"
+            decision_date = self._parse_date(self._extract_text(soup, ".decision_date, .date, .jdgmDt"))
 
             # Extract content sections
             holding = self._extract_section(soup, "판시사항")

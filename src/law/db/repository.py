@@ -68,27 +68,30 @@ class Repository:
         if existing and existing[0]["content_hash"] == h:
             return False  # unchanged
 
+        attachments_json = json.dumps([a.model_dump() for a in article.attachments], ensure_ascii=False)
+
         if existing:
             await self.db.execute(
                 "UPDATE statutes SET law_name=?, part=?, chapter=?, section=?, subsection=?, "
-                "article_title=?, content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=? "
+                "article_title=?, content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=?, "
+                "attachments=? "
                 "WHERE source_key=? AND article_number=?",
                 (
                     article.law_name, article.part, article.chapter, article.section,
                     article.subsection, article.article_title, article.content, h,
-                    source_url, now, run_id, article.source_key, article.article_number,
+                    source_url, now, run_id, attachments_json, article.source_key, article.article_number,
                 ),
             )
         else:
             await self.db.execute(
                 "INSERT INTO statutes "
                 "(source_key, law_name, part, chapter, section, subsection, article_number, "
-                "article_title, content, content_hash, source_url, scraped_at, scrape_run_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "article_title, content, content_hash, source_url, scraped_at, scrape_run_id, attachments) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     article.source_key, article.law_name, article.part, article.chapter,
                     article.section, article.subsection, article.article_number,
-                    article.article_title, article.content, h, source_url, now, run_id,
+                    article.article_title, article.content, h, source_url, now, run_id, attachments_json,
                 ),
             )
 
@@ -109,27 +112,30 @@ class Repository:
         if existing and existing[0]["content_hash"] == h:
             return False
 
+        attachments_json = json.dumps([a.model_dump() for a in article.attachments], ensure_ascii=False)
+
         if existing:
             await self.db.execute(
                 "UPDATE admin_rules SET rule_name=?, part=?, chapter=?, section=?, "
-                "article_title=?, content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=? "
+                "article_title=?, content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=?, "
+                "attachments=? "
                 "WHERE source_key=? AND article_number=?",
                 (
                     article.rule_name, article.part, article.chapter, article.section,
                     article.article_title, article.content, h,
-                    source_url, now, run_id, article.source_key, article.article_number,
+                    source_url, now, run_id, attachments_json, article.source_key, article.article_number,
                 ),
             )
         else:
             await self.db.execute(
                 "INSERT INTO admin_rules "
                 "(source_key, rule_name, part, chapter, section, article_number, "
-                "article_title, content, content_hash, source_url, scraped_at, scrape_run_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "article_title, content, content_hash, source_url, scraped_at, scrape_run_id, attachments) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     article.source_key, article.rule_name, article.part, article.chapter,
                     article.section, article.article_number,
-                    article.article_title, article.content, h, source_url, now, run_id,
+                    article.article_title, article.content, h, source_url, now, run_id, attachments_json,
                 ),
             )
 

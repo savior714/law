@@ -7,6 +7,15 @@ from datetime import date
 from pydantic import BaseModel, field_validator
 
 
+class Attachment(BaseModel):
+    """Metadata for a linked file attachment (별표/서식)."""
+
+    name: str
+    pdf_url: str | None = None
+    hwp_url: str | None = None
+    has_pdf_priority: bool = False
+
+
 class StatuteArticle(BaseModel):
     """A single article from a statute (형법, 형사소송법, 경찰관직무집행법)."""
 
@@ -19,6 +28,7 @@ class StatuteArticle(BaseModel):
     article_number: str
     article_title: str | None = None
     content: str
+    attachments: list[Attachment] = []
 
     @field_validator("content")
     @classmethod
@@ -39,6 +49,7 @@ class AdminRuleArticle(BaseModel):
     article_number: str
     article_title: str | None = None
     content: str
+    attachments: list[Attachment] = []
 
     @field_validator("content")
     @classmethod

@@ -5,6 +5,7 @@ All three share the lsInfoP.do page template.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncGenerator
@@ -12,7 +13,7 @@ from collections.abc import AsyncGenerator
 from bs4 import BeautifulSoup
 
 from law.config import SELECTORS_LAW, SOURCES
-from law.models.schemas import StatuteArticle
+from law.models.schemas import Attachment, StatuteArticle
 from law.scrapers.base import BaseScraper, SelectorNotFoundError
 from law.utils.text import clean_html_text
 
@@ -38,20 +39,50 @@ class StatuteScraper(BaseScraper):
             raise SelectorNotFoundError(f"{self.name}: neither {body} nor {alt} found")
         return True
 
+    async def _wait_for_law_body(self, timeout: int = 30_000) -> None:
+        """Wait until #lsBdy has actual text content (AJAX loaded)."""
+        logger.info("%s: waiting for law body AJAX content...", self.name)
+        deadline = asyncio.get_event_loop().time() + (timeout / 1000)
+        while asyncio.get_event_loop().time() < deadline:
+            has_content = await self.page.evaluate("""() => {
+                const el = document.querySelector('#lsBdy') || document.querySelector('#bodyContent');
+                return el && el.innerText.trim().length > 100;
+            }""")
+            if has_content:
+                logger.info("%s: law body content loaded", self.name)
+                return
+            await asyncio.sleep(0.5)
+        logger.warning("%s: timeout waiting for law body content, proceeding anyway", self.name)
+
     async def _navigate_to_statute(self) -> None:
         """Navigate to the statute page, handling search-based access for 형법."""
         if self._source_key == "criminal_act":
             await self.safe_navigate(self.source_url)
-            # Click the first search result that matches "형법" (the statute, not special laws)
-            await self.page.wait_for_selector("#dtlBtn1", timeout=10_000)
-            await self.page.click("#dtlBtn1")
-            await self.page.wait_for_selector(SELECTORS_LAW["law_body"], timeout=15_000)
+            # lsSc.do AJAX-loads results into #listDiv; click the first entry (형법)
+            # which renders the law body inline inside #bodyContent on the same page.
+            try:
+                await self.page.wait_for_selector("#listDiv", timeout=15_000)
+                await asyncio.sleep(2)  # allow AJAX results to settle
+                first_link = await self.page.query_selector("#listDiv a")
+                if first_link:
+                    await first_link.click()
+                    await asyncio.sleep(3)  # wait for inline law body to render
+                else:
+                    logger.warning("%s: no result link found in #listDiv", self.name)
+            except Exception:
+                logger.warning("%s: could not click first search result", self.name)
+            await self._wait_for_law_body()
         else:
-            await self.safe_navigate(self.source_url, wait_selector=SELECTORS_LAW["law_body"])
+            # Navigate and wait for the container to exist first
+            await self.safe_navigate(self.source_url)
+            await self._wait_for_law_body()
 
     async def scrape(self) -> AsyncGenerator[StatuteArticle, None]:
         await self._navigate_to_statute()
         await self.validate_page_loaded()
+
+        # Step 1: Collect attachments (별표/서식) using base method
+        attachments = await self._scrape_attachments()
 
         html = await self.get_page_content()
         soup = BeautifulSoup(html, "lxml")
@@ -64,7 +95,11 @@ class StatuteScraper(BaseScraper):
         if body_el is None:
             return
 
-        articles = self._extract_articles(body_el, hierarchy)
+        # Decompose sidebar and controls if they are inside body_el
+        for noise in body_el.select("#leftContent, #lawContls, .ls_btn"):
+            noise.decompose()
+
+        articles = self._extract_articles(body_el, hierarchy, attachments)
 
         for article in articles:
             yield article
@@ -101,7 +136,7 @@ class StatuteScraper(BaseScraper):
 
         return hierarchy
 
-    def _extract_articles(self, body: BeautifulSoup, hierarchy: dict) -> list[StatuteArticle]:
+    def _extract_articles(self, body: BeautifulSoup, hierarchy: dict, attachments: list[Attachment] = []) -> list[StatuteArticle]:
         """Extract individual articles from the law body HTML."""
         articles: list[StatuteArticle] = []
         raw = body.get_text("\n")
@@ -112,6 +147,7 @@ class StatuteScraper(BaseScraper):
             part = part.strip()
             if not part:
                 continue
+            # Regex for "제N조(제목)" or "제N조의N(제목)"
             m = re.match(r"(제\d+조(?:의\d+)?)\s*[\(（]([^)）]+)[\)）](.*)", part, re.DOTALL)
             if not m:
                 continue
@@ -135,6 +171,7 @@ class StatuteScraper(BaseScraper):
                     article_number=article_num,
                     article_title=title,
                     content=full_content,
+                    attachments=attachments if not articles else [], # Attach to first article only
                 )
             )
 

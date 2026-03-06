@@ -12,7 +12,7 @@ from collections.abc import AsyncGenerator
 from bs4 import BeautifulSoup
 
 from law.config import SELECTORS_LAW, SOURCES
-from law.models.schemas import AdminRuleArticle
+from law.models.schemas import AdminRuleArticle, Attachment
 from law.scrapers.base import BaseScraper, SelectorNotFoundError
 from law.utils.text import clean_html_text
 
@@ -42,6 +42,9 @@ class AdminRuleScraper(BaseScraper):
         await self.safe_navigate(self.source_url, wait_selector=SELECTORS_LAW["admin_body_content"])
         await self.validate_page_loaded()
 
+        # Step 1: Collect attachments (별표/서식) using base method
+        attachments = await self._scrape_attachments()
+
         html = await self.get_page_content()
         soup = BeautifulSoup(html, "lxml")
 
@@ -49,14 +52,14 @@ class AdminRuleScraper(BaseScraper):
         if body_el is None:
             return
 
-        articles = self._extract_articles(body_el)
+        articles = self._extract_articles(body_el, attachments)
 
         for article in articles:
             yield article
 
         logger.info("%s: extracted %d articles", self.name, len(articles))
 
-    def _extract_articles(self, body: BeautifulSoup) -> list[AdminRuleArticle]:
+    def _extract_articles(self, body: BeautifulSoup, attachments: list[Attachment] = []) -> list[AdminRuleArticle]:
         articles: list[AdminRuleArticle] = []
         raw = body.get_text("\n")
 
@@ -102,6 +105,7 @@ class AdminRuleScraper(BaseScraper):
                     article_number=article_num,
                     article_title=title,
                     content=full_content,
+                    attachments=attachments if not articles else [], # Attach to first article only
                 )
             )
 

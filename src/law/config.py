@@ -60,7 +60,10 @@ SOURCES: dict[str, dict] = {
     },
     "law_go_kr_precedent": {
         "name": "판례검색",
-        "url": "https://www.law.go.kr/precSc.do",
+        # menuId/subMenuId/tabMenuId params required for the search form to render correctly.
+        # Searching with keyword "형사" filters to court precedents (precView links);
+        # the default landing without search shows only tax precedents.
+        "url": "https://www.law.go.kr/precSc.do?menuId=7&subMenuId=47&tabMenuId=213&eventGubun=",
         "scraper": "law_precedent",
         "table": "precedents",
     },
@@ -81,11 +84,15 @@ SELECTORS_LAW = {
     "admin_body_content": "#bodyContent",
 }
 
-# ── CSS Selectors: scourt portal ──────────────────────────────────────────
+# ── CSS Selectors: scourt portal (WebSquare5 framework) ───────────────────
+# IDs confirmed via live DOM inspection (2026-03-07)
 SELECTORS_SCOURT = {
-    "search_input": "#search_txt",
-    "search_button": "#btn_search",
-    "result_list": ".result_list",
-    "result_item": ".result_list li",
-    "pagination": ".pagination",
+    "search_input": "#mf_mainFrame_ibx_srchwd",
+    "search_button": "#mf_mainFrame_btn_srch",
+    "result_list": "#mf_mainFrame_gen_cntntsList",
+    "result_item": "[id*='gen_cntntsList'][id*='anc_title']",
+    "pagination": None,  # WebSquare5 pagination — handled via JS click
 }
+
+# WebSquare5 requires ~15s for full JS initialization before any interaction
+SCOURT_INIT_WAIT_SEC = 15
