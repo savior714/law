@@ -61,8 +61,8 @@ class Repository:
         h = content_hash(article.content)
 
         existing = await self.db.execute_fetchall(
-            "SELECT id, content_hash FROM statutes WHERE source_key=? AND article_number=?",
-            (article.source_key, article.article_number),
+            "SELECT id, content_hash FROM statutes WHERE source_key=? AND article_number=? AND article_title=?",
+            (article.source_key, article.article_number, article.article_title),
         )
 
         if existing and existing[0]["content_hash"] == h:
@@ -73,13 +73,13 @@ class Repository:
         if existing:
             await self.db.execute(
                 "UPDATE statutes SET law_name=?, part=?, chapter=?, section=?, subsection=?, "
-                "article_title=?, content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=?, "
+                "content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=?, "
                 "attachments=? "
-                "WHERE source_key=? AND article_number=?",
+                "WHERE source_key=? AND article_number=? AND article_title=?",
                 (
                     article.law_name, article.part, article.chapter, article.section,
-                    article.subsection, article.article_title, article.content, h,
-                    source_url, now, run_id, attachments_json, article.source_key, article.article_number,
+                    article.subsection, article.content, h,
+                    source_url, now, run_id, attachments_json, article.source_key, article.article_number, article.article_title,
                 ),
             )
         else:
@@ -105,8 +105,8 @@ class Repository:
         h = content_hash(article.content)
 
         existing = await self.db.execute_fetchall(
-            "SELECT id, content_hash FROM admin_rules WHERE source_key=? AND article_number=?",
-            (article.source_key, article.article_number),
+            "SELECT id, content_hash FROM admin_rules WHERE source_key=? AND article_number=? AND article_title=?",
+            (article.source_key, article.article_number, article.article_title),
         )
 
         if existing and existing[0]["content_hash"] == h:
@@ -117,13 +117,13 @@ class Repository:
         if existing:
             await self.db.execute(
                 "UPDATE admin_rules SET rule_name=?, part=?, chapter=?, section=?, "
-                "article_title=?, content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=?, "
+                "content=?, content_hash=?, source_url=?, scraped_at=?, scrape_run_id=?, "
                 "attachments=? "
-                "WHERE source_key=? AND article_number=?",
+                "WHERE source_key=? AND article_number=? AND article_title=?",
                 (
                     article.rule_name, article.part, article.chapter, article.section,
-                    article.article_title, article.content, h,
-                    source_url, now, run_id, attachments_json, article.source_key, article.article_number,
+                    article.content, h,
+                    source_url, now, run_id, attachments_json, article.source_key, article.article_number, article.article_title,
                 ),
             )
         else:

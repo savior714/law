@@ -141,3 +141,57 @@
 - Edit: src/law/utils/text.py - 호(Item, 2칸) 및 목(Point, 4칸) 자동 들여쓰기 로직 구현
 - Edit: src/law/scrapers/law_statute.py & law_admin_rule.py - 조문 제목/본문 계층 분리를 위한 줄바꿈 추가
 - Result: NotebookLM 데이터셋 가독성 및 RAG 구조 최적화 완료
+
+## 2026-03-07 19:35:00
+- Task: 수집 대상(SOURCES) 최적화 및 행정규칙 스크래퍼 버그 수정
+- Changes:
+  - src/law/config.py: 사용자의 요청에 따라 5개 핵심 법령/규칙으로 SOURCES 변경 (경찰수사규칙, 범죄수사규칙, 형사소송법, 수사준칙, 형법)
+  - README.md: 수집 대상 테이블을 5개 항목으로 업데이트
+  - src/law/scrapers/law_admin_rule.py: AdminRuleScraper 내 undefined variable (SOURCE_KEY, logger) 오류 수정
+- Result: 스크래핑 범위 최소화 및 안정성 확보. NotebookLM RAG 데이터셋 품질 개선
+
+
+## 2026-03-07 19:40:00
+- Task: run.bat 최종 점검 및 메타데이터 확인
+- Status: 완료
+- Note: run.bat는 이미 최신 상태(uv run law 실행 및 chcp 65001 적용)임을 현행화함.
+
+
+## 2026-03-07 19:50:00
+- Task: 법제처 URL ID(lsId, lsiSeq) 불일치 문제 해결
+- Changes:
+  - src/law/config.py: 모든 SOURCES의 URL을 검색 페이지가 아닌 직접 조문 페이지(lsInfoP.do)로 교체
+  - 경찰수사규칙: lsiSeq=276410으로 수정 (기존 lsId=013976은 경찰관직무집행법)
+  - 형법, 수사준칙: 직접 접근 가능한 lsId/lsiSeq 기반 URL로 변경
+  - src/law/scrapers/law_statute.py: 검색(Search) 기반의 복잡한 내비게이션 로직을 제거하고 직접 URL 접근 방식으로 단순화 (안정성 강화)
+- Result: 데이터 불일치 해결 및 스크래핑 속도/안정성 개선
+
+
+## 2026-03-07 20:05:00
+- Task: 법령 ID 및 DOM 구조 최신화 (형법 등)
+- Changes:
+  - 형법: lsiSeq=282557 (2026 최신 버전)으로 업데이트
+  - 수사준칙: lsiSeq=255305로 업데이트
+  - 모든 법령에 대해 lsInfoP.do 직접 접근 방식 적용
+  - 법제처 레이아웃 변경 대응: #lsBdy 대신 #bodyContent 사용 여부 확인 완료
+- Result: 5개 핵심 법령 모두 정상 수집 확인 (Integration Test 통과)
+
+
+## 2026-03-07 20:25:00
+- Task: 법령 본칙/부칙 중복 조문 수집 오류 수정
+- Problem: 동일한 조문 번호(제1조 등)가 본칙과 부칙에 공존할 경우 DB에서 덮어쓰기 발생
+- Changes:
+  - src/law/db/schema.py: unique index에 article_title 추가하여 중복 방지
+  - src/law/scrapers/law_statute.py: 본칙/부칙 영역 분리 및 부칙 조문에 '[부칙]' 접두사 부여
+  - src/law/scrapers/law_admin_rule.py: 동일한 섹션 분리 로직 적용
+- Result: 경찰수사규칙 제1조(목적) 정상 수집 및 검증 완료
+
+
+## 2026-03-07 20:30:00 (Critical Logic Update)
+- Task: 본칙/부칙 분리 및 DB 식별자 확장 작업 완료
+- Changes:
+  - CRITICAL_LOGIC.md: 섹션 6(본칙/부칙 분리 로직) 추가
+  - CRITICAL_LOGIC.md: 섹션 4(유니크 키 확장) 업데이트
+  - 모든 스크래퍼 및 DB 스키마에 해당 원칙 강제 적용 완료
+- Git: 모든 수정 사항을 'feat: implement addenda partitioning and fix article overwrite' 메시지로 푸시 예정
+

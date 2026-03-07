@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS statutes (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_statutes_unique
-    ON statutes(source_key, article_number);
+    ON statutes(source_key, article_number, article_title);
 
 -- Administrative rules: 경찰수사규칙
 CREATE TABLE IF NOT EXISTS admin_rules (
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS admin_rules (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_rules_unique
-    ON admin_rules(source_key, article_number);
+    ON admin_rules(source_key, article_number, article_title);
 
 -- Precedents: law.go.kr + scourt portal
 CREATE TABLE IF NOT EXISTS precedents (
@@ -114,4 +114,12 @@ async def init_db() -> None:
             if "attachments" not in cols:
                 await db.execute("ALTER TABLE admin_rules ADD COLUMN attachments TEXT")
         
+        # Recreate unique indexes for statutes to include title
+        await db.execute("DROP INDEX IF EXISTS idx_statutes_unique")
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_statutes_unique ON statutes(source_key, article_number, article_title)")
+
+        # Recreate unique indexes for admin_rules to include title
+        await db.execute("DROP INDEX IF EXISTS idx_admin_rules_unique")
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_rules_unique ON admin_rules(source_key, article_number, article_title)")
+
         await db.commit()

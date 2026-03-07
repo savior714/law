@@ -30,42 +30,33 @@ BUNDLE_PREFIX_MAP = {
 SOURCES: dict[str, dict] = {
     "police_investigation_rules": {
         "name": "경찰수사규칙",
-        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=279215",
-        "scraper": "law_statute",
-        "table": "statutes",
-    },
-    "police_duties_act": {
-        "name": "경찰관직무집행법",
         "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsId=013976",
         "scraper": "law_statute",
         "table": "statutes",
     },
+    "crime_investigation_rules": {
+        "name": "범죄수사규칙",
+        "url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000272092",
+        "scraper": "law_admin_rule",
+        "table": "admin_rules",
+    },
     "criminal_procedure_act": {
         "name": "형사소송법",
-        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsId=001671&ancYnChk=0",
+        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsId=001671",
+        "scraper": "law_statute",
+        "table": "statutes",
+    },
+    "investigation_standards": {
+        "name": "검사와 사법경찰관의 상호협력과 일반적 수사준칙에 관한 규정",
+        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=255305",
         "scraper": "law_statute",
         "table": "statutes",
     },
     "criminal_act": {
         "name": "형법",
-        "url": "https://www.law.go.kr/lsSc.do?query=%ED%98%95%EB%B2%95",
+        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=282557",
         "scraper": "law_statute",
         "table": "statutes",
-    },
-    "scourt_criminal_precedent": {
-        "name": "대법원 형사판례",
-        "url": "https://portal.scourt.go.kr/pgp/index.on?m=PGP1011M01&l=N&c=900",
-        "scraper": "scourt_precedent",
-        "table": "precedents",
-    },
-    "law_go_kr_precedent": {
-        "name": "판례검색",
-        # menuId/subMenuId/tabMenuId params required for the search form to render correctly.
-        # Searching with keyword "형사" filters to court precedents (precView links);
-        # the default landing without search shows only tax precedents.
-        "url": "https://www.law.go.kr/precSc.do?menuId=7&subMenuId=47&tabMenuId=213&eventGubun=",
-        "scraper": "law_precedent",
-        "table": "precedents",
     },
 }
 

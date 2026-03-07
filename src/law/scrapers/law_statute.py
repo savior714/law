@@ -55,27 +55,9 @@ class StatuteScraper(BaseScraper):
         logger.warning("%s: timeout waiting for law body content, proceeding anyway", self.name)
 
     async def _navigate_to_statute(self) -> None:
-        """Navigate to the statute page, handling search-based access for 형법."""
-        if self._source_key == "criminal_act":
-            await self.safe_navigate(self.source_url)
-            # lsSc.do AJAX-loads results into #listDiv; click the first entry (형법)
-            # which renders the law body inline inside #bodyContent on the same page.
-            try:
-                await self.page.wait_for_selector("#listDiv", timeout=15_000)
-                await asyncio.sleep(2)  # allow AJAX results to settle
-                first_link = await self.page.query_selector("#listDiv a")
-                if first_link:
-                    await first_link.click()
-                    await asyncio.sleep(3)  # wait for inline law body to render
-                else:
-                    logger.warning("%s: no result link found in #listDiv", self.name)
-            except Exception:
-                logger.warning("%s: could not click first search result", self.name)
-            await self._wait_for_law_body()
-        else:
-            # Navigate and wait for the container to exist first
-            await self.safe_navigate(self.source_url)
-            await self._wait_for_law_body()
+        """Navigate to the statute page directly."""
+        await self.safe_navigate(self.source_url)
+        await self._wait_for_law_body()
 
     async def scrape(self) -> AsyncGenerator[StatuteArticle, None]:
         await self._navigate_to_statute()
@@ -86,33 +68,96 @@ class StatuteScraper(BaseScraper):
 
         html = await self.get_page_content()
         soup = BeautifulSoup(html, "lxml")
-
-        # Parse hierarchy from left sidebar tree
-        hierarchy = self._parse_hierarchy(soup)
-
-        # Parse articles from law body
+        
         body_el = soup.select_one(SELECTORS_LAW["law_body"]) or soup.select_one(SELECTORS_LAW["body_content"])
-        if body_el is None:
-            return
-
+        if not body_el:
+            raise ValueError(f"{self._source_key}: neither #lsBdy nor #bodyContent found")
+            
         # Decompose sidebar, controls and UI layers if they are inside body_el
         noise_selectors = [
             "#leftContent", "#lawContls", ".ls_btn", 
             ".p_layer_copy", "[class*='layer_copy']",
-            "#lsByl", ".ls_sms_list", ".pconfile", ".note_list"
+            ".ls_sms_list", ".pconfile", ".note_list"
         ]
         for ns in noise_selectors:
             for noise in body_el.select(ns):
                 noise.decompose()
 
-        articles = self._extract_articles(body_el, hierarchy, attachments)
+        # Get hierarchy info
+        hierarchy = self._extract_hierarchy(soup)
+        
+        # Split by article marker
+        raw = body_el.get_text("\n")
+        
+        # Split 본칙 vs 부칙
+        main_body_text = raw
+        addendum_text = ""
+        
+        if "부칙" in raw:
+            # Try to find the last occurrence of "부칙" that is likely the separator
+            # In law.go.kr, it typically appears as a heading
+            if "\n부칙\n" in raw:
+                parts_body = raw.split("\n부칙\n", 1)
+                main_body_text = parts_body[0]
+                addendum_text = parts_body[1]
+            elif "부      칙" in raw:
+                parts_body = raw.split("부      칙", 1)
+                main_body_text = parts_body[0]
+                addendum_text = parts_body[1]
 
-        for article in articles:
+        all_articles: list[StatuteArticle] = []
+
+        def parse_text_to_articles(text: str, is_addendum: bool = False) -> list[StatuteArticle]:
+            results = []
+            # Split by "제N조"
+            item_parts = re.split(r"(?=제\d+조(?:의\d+)?\s*[\(（])", text)
+            
+            for part in item_parts:
+                part = part.strip()
+                if not part: continue
+                
+                # Match "제1조(목적) ..."
+                m = re.match(r"(제\d+조(?:의\d+)?)\s*[\(（]([^)）]+)[\)）](.*)", part, re.DOTALL)
+                if not m: continue
+                
+                article_num = m.group(1).strip()
+                if is_addendum:
+                    article_num = f"[부칙] {article_num}"
+                    
+                title = m.group(2).strip()
+                content_body = m.group(3).strip()
+                full_content = f"{article_num}({title})\n{content_body}"
+                full_content = clean_html_text(full_content)
+
+                ctx = hierarchy.get(m.group(1).strip(), {}) # use original num for hierarchy lookup
+
+                results.append(
+                    StatuteArticle(
+                        source_key=self._source_key,
+                        law_name=self._law_name,
+                        part=ctx.get("part"),
+                        chapter=ctx.get("chapter"),
+                        section=ctx.get("section"),
+                        subsection=ctx.get("subsection"),
+                        article_number=article_num,
+                        article_title=title,
+                        content=full_content,
+                        attachments=attachments if not all_articles and not results else [],
+                    )
+                )
+            return results
+
+        main_articles = parse_text_to_articles(main_body_text, is_addendum=False)
+        all_articles.extend(main_articles)
+        addendum_articles = parse_text_to_articles(addendum_text, is_addendum=True)
+        all_articles.extend(addendum_articles)
+
+        for article in all_articles:
             yield article
 
-        logger.info("%s: extracted %d articles", self.name, len(articles))
+        logger.info("%s: extracted %d articles", self.name, len(all_articles))
 
-    def _parse_hierarchy(self, soup: BeautifulSoup) -> dict[str, dict]:
+    def _extract_hierarchy(self, soup: BeautifulSoup) -> dict[str, dict]:
         """Build a mapping of article_number -> hierarchy context from the sidebar tree."""
         hierarchy: dict[str, dict] = {}
         current = {"part": None, "chapter": None, "section": None, "subsection": None}

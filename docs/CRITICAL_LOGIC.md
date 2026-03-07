@@ -17,6 +17,7 @@
   * 일반 법령: `#tabSms_1`, `#lsBdyView`
   * 행정규칙: `#bdyBtnKO`, `text='행정규칙본문'`
 * **안정성 보장:** 탭 전환 실패 시 원본 URL로 `safe_navigate`를 수행하여 세션을 복구한다. 브라우저가 예기치 않게 종료된 경우(`is_closed`) 즉시 루프를 중단하고 에러를 보고한다.
+* **직접 접근 원칙 (Stability):** 속도와 안정성을 위해 검색 결과 페이지를 통한 우회 대신, `lsiSeq` 또는 `lsId`가 포함된 **직접 조문 URL (`lsInfoP.do`)**을 SSOT로 관리한다.
 
 ## 3. 데이터 클리닝 및 노이즈 제거 (Noise Removal)
 
@@ -35,7 +36,7 @@
 ## 4. 데이터 무결성 및 SSOT
 
 * **증분 수집:** `content` 필드의 SHA-256 해시값(`content_hash`)을 생성하여 중복을 방지한다.
-* **저장 원칙:** `source_key`와 `article_number` (또는 `case_number`)를 유니크 키로 사용하여 `UPSERT` 처리한다.
+* **저장 원칙 (Surgical Update):** `source_key`, `article_number`, **`article_title`**의 조합을 유니크 키로 사용하여 `UPSERT` 처리한다. 이는 본칙과 부칙의 동일 번호 조문이 충돌하지 않도록 보장한다.
 * **NotebookLM 최적화:** 출력물은 파일당 약 4MB(`BUNDLE_MAX_BYTES`) 단위로 분할하며, `MASTER_ATLAS.md`를 통해 전체 인덱스를 제공한다.
 
 ## 5. 아키텍처 패턴 (3-Layer)
@@ -43,3 +44,11 @@
 * **Definition:** `src/law/models/schemas.py` (Pydantic 모델)
 * **Repository:** `src/law/db/repository.py` (SQLite 비동기 CRUD)
 * **Service/Logic:** `src/law/scrapers/` (사이트별 추출 로직)
+
+## 6. 본칙(Main) 및 부칙(Addenda) 분리 로직
+
+* **충돌 방지 메커니즘:** 법령 및 행정규칙 수집 시, 본문 텍스트에서 **"부칙"** 키워드를 기준으로 섹션을 물리적으로 분할한다.
+* **식별자 명명 규칙:**
+  * **본칙 조문:** `제N조` 형식을 유지한다.
+  * **부칙 조문:** **`[부칙] 제N조`** 형식으로 접두사를 강제 부여하여 본칙 데이터가 덮어씌워지는 것을 방지한다.
+* **데이터 무결성:** 부칙 섹션 추출 시에도 본칙과 동일한 하이라키 및 클리닝 로직을 적용한다.
