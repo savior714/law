@@ -95,6 +95,7 @@ class LawScraperApp(App):
             self._log("[red]No sources selected.[/red]")
             return
 
+        self._log("[dim]Connecting to database...[/dim]")
         await init_db()
         repo = Repository()
         await repo.connect()
@@ -118,8 +119,10 @@ class LawScraperApp(App):
                 error_msg = None
 
                 try:
+                    self._log(f"  [cyan]Preparing browser for {src['name']}...[/cyan]")
                     await scraper.init_browser()
-
+                    
+                    self._log(f"  [cyan]Navigating & Extraction started...[/cyan]")
                     async for record in scraper.scrape():
                         if src["table"] == "statutes":
                             await repo.upsert_statute(record, src["url"], run_id)
