@@ -40,10 +40,10 @@ CREATE TABLE IF NOT EXISTS statutes (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_statutes_unique
     ON statutes(source_key, article_number);
 
--- Administrative rules: 범죄수사규칙
+-- Administrative rules: 경찰수사규칙
 CREATE TABLE IF NOT EXISTS admin_rules (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_key      TEXT NOT NULL DEFAULT 'crime_investigation_rules',
+    source_key      TEXT NOT NULL DEFAULT 'generic_admin_rule',
     rule_name       TEXT NOT NULL,
     part            TEXT,
     chapter         TEXT,

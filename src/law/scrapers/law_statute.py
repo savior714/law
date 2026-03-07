@@ -95,9 +95,15 @@ class StatuteScraper(BaseScraper):
         if body_el is None:
             return
 
-        # Decompose sidebar and controls if they are inside body_el
-        for noise in body_el.select("#leftContent, #lawContls, .ls_btn"):
-            noise.decompose()
+        # Decompose sidebar, controls and UI layers if they are inside body_el
+        noise_selectors = [
+            "#leftContent", "#lawContls", ".ls_btn", 
+            ".p_layer_copy", "[class*='layer_copy']",
+            "#lsByl", ".ls_sms_list", ".pconfile", ".note_list"
+        ]
+        for ns in noise_selectors:
+            for noise in body_el.select(ns):
+                noise.decompose()
 
         articles = self._extract_articles(body_el, hierarchy, attachments)
 

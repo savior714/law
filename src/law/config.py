@@ -15,7 +15,7 @@ DEFAULT_TIMEOUT_MS = 30_000
 NAVIGATION_DELAY_SEC = 1.0
 SCOURT_DELAY_SEC = 2.0
 MAX_RETRIES = 3
-HEADLESS = False  # GUI mode by default
+HEADLESS = True  # Hidden browser for stability
 
 # ── Export ─────────────────────────────────────────────────────────────────
 BUNDLE_MAX_BYTES = 4_000_000  # ~4 MB per bundle file
@@ -28,11 +28,11 @@ BUNDLE_PREFIX_MAP = {
 
 # ── Source registry ────────────────────────────────────────────────────────
 SOURCES: dict[str, dict] = {
-    "crime_investigation_rules": {
-        "name": "범죄수사규칙",
-        "url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000272092&chrClsCd=010201",
-        "scraper": "law_admin_rule",
-        "table": "admin_rules",
+    "police_investigation_rules": {
+        "name": "경찰수사규칙",
+        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=279215",
+        "scraper": "law_statute",
+        "table": "statutes",
     },
     "police_duties_act": {
         "name": "경찰관직무집행법",

@@ -90,47 +90,127 @@ class BaseScraper(ABC):
         """Navigate to [별표/서식] tab and collect PDF/HWP links from law.go.kr pages."""
         results: list[Attachment] = []
         try:
-            # Common tab pattern for law.go.kr (Tab 2 is usually annexes)
-            # Try both text match and common ID
-            tab = await self.page.query_selector("text='별표/서식'") or await self.page.query_selector("#tabSms_2")
+            if self.page.is_closed():
+                logger.error("%s: browser page is closed before attachment scraping", self.name)
+                return []
+
+            # 1. '별표/서식' 탭 찾기 및 클릭
+            # 행정규칙 특유의 fSelectJoListTree 패턴이나 ID를 우선 탐색
+            tab = (
+                await self.page.query_selector("a[onclick*='liBgcolorSpanBy']") or
+                await self.page.query_selector("#bylView") or 
+                await self.page.query_selector("text='별표·서식'") or 
+                await self.page.query_selector("text='별표/서식'") or 
+                await self.page.query_selector("text='첨부파일'") or
+                await self.page.query_selector("#tabSms_2") or
+                await self.page.query_selector("#attFlListView")
+            )
+            
             if not tab:
+                # 텍스트 기반 부분 일치 대체 탐색
+                tab = await self.page.query_selector("a:has-text('별표'), button:has-text('별표')")
+                
+            if not tab:
+                logger.debug("%s: attachments tab not found", self.name)
                 return []
 
             await tab.click()
-            # Wait for content inside or the specific list container
+            
+            # 2. AJAX 콘텐츠 로딩 대기
+            # 행정규칙(.pconfile) 및 일반 법령(.ls_sms_list) 컨테이너 대기
             try:
-                await self.page.wait_for_selector(".ls_sms_list li, #smsBody li", timeout=5000)
+                await self.page.wait_for_selector(
+                    ".ls_sms_list > li, #smsBody > li, .pconfile > li, .pconfile li, #liBgcolorSpanBy li", 
+                    timeout=5000
+                )
             except Exception:
-                # If no list items, maybe they are empty
-                pass
+                await asyncio.sleep(2)
 
-            items = await self.page.query_selector_all(".ls_sms_list li, #smsBody li")
+            if self.page.is_closed(): return results
+
+            # 3. 항목 추출
+            items = await self.page.query_selector_all(
+                ".ls_sms_list > li, #smsBody > li, .pconfile > li, #liBgcolorSpanBy li"
+            )
+            if not items:
+                items = await self.page.query_selector_all(".ls_sms_list li, #smsBody li, .pconfile li")
+
             for item in items:
-                label_el = await item.query_selector("dt") or item
-                label = (await label_el.inner_text()).strip().split("\n")[0]
+                if self.page.is_closed(): break
+                # 레이블 추출: 링크 텍스트나 볼드체 우선
+                label_el = await item.query_selector("dt, a.blu, a[onclick*='bylInfo'], b") or item
+                label = (await label_el.inner_text()).strip()
+                label = " ".join(label.split()).split("\n")[0].strip()
+                
+                if not label or "주소를 복사" in label:
+                    continue
 
-                # PDF icon: class ico_pdf or icon with alt 'pdf'
-                pdf_el = await item.query_selector("a.ico_pdf, a[title*='PDF'], a[title*='pdf']")
-                hwp_el = await item.query_selector("a.ico_hwp, a[title*='HWP'], a[title*='hwp']")
+                # PDF 아이콘/텍스트 식별
+                pdf_el = (
+                    await item.query_selector("a.ico_pdf, a[title*='PDF'], a[title*='pdf']") or 
+                    await item.query_selector("a:has(img[alt*='PDF']), a:has(img[alt*='pdf'])") or 
+                    await item.query_selector("a:has-text('.pdf')")
+                )
+                
+                # HWPX 식별
+                hwpx_el = (
+                    await item.query_selector("a.ico_hwpx, a[title*='HWPX'], a[title*='hwpx']") or
+                    await item.query_selector("a[href*='flExt=hwpx']")
+                )
+
+                # HWP 아이콘/텍스트 식별
+                hwp_el = (
+                    await item.query_selector("a.ico_hwp, a[title*='HWP'], a[title*='hwp']") or 
+                    await item.query_selector("a:has(img[alt*='HWP']), a:has(img[alt*='hwp']), a:has(img[alt*='한글'])") or 
+                    await item.query_selector("a:has-text('.hwp')")
+                )
 
                 pdf_url = await pdf_el.get_attribute("href") if pdf_el else None
+                hwpx_url = await hwpx_el.get_attribute("href") if hwpx_el else None
                 hwp_url = await hwp_el.get_attribute("href") if hwp_el else None
 
-                if pdf_url:
-                    # User: "pdf가 우선으로 받고"
-                    results.append(Attachment(name=label, pdf_url=pdf_url, has_pdf_priority=True))
-                elif hwp_url:
-                    # User: "pdf가 없는 경우 hwp를 받지 말고 그냥 로그나 알림을 줬으면 좋겠어"
-                    logger.warning("%s: '%s' has NO PDF. Skipping HWP download as requested. (HWP URL available)", self.name, label)
-                    results.append(Attachment(name=label, hwp_url=hwp_url, has_pdf_priority=False))
+                if pdf_url or hwpx_url or hwp_url:
+                    if pdf_url:
+                        results.append(Attachment(
+                            name=label, 
+                            pdf_url=pdf_url, 
+                            hwpx_url=hwpx_url,
+                            hwp_url=hwp_url,
+                            has_pdf_priority=True
+                        ))
+                    else:
+                        logger.warning(
+                            "%s: '%s' has NO PDF. (Available: HWPX=%s, HWP=%s)", 
+                            self.name, label, bool(hwpx_url), bool(hwp_url)
+                        )
+                        results.append(Attachment(
+                            name=label, 
+                            hwpx_url=hwpx_url,
+                            hwp_url=hwp_url, 
+                            has_pdf_priority=False
+                        ))
 
-            # Important: Switch back to [본문] tab for article extraction
-            main_tab = await self.page.query_selector("text='본문'") or await self.page.query_selector("#tabSms_1")
-            if main_tab:
-                await main_tab.click()
-                await asyncio.sleep(2)
+            # 4. [본문] 탭으로 복귀 (조문 추출을 위해 필수)
+            if not self.page.is_closed():
+                main_tab = (
+                    await self.page.query_selector("#bdyBtnKO") or
+                    await self.page.query_selector("text='본문'") or 
+                    await self.page.query_selector("text='행정규칙본문'") or
+                    await self.page.query_selector("#tabSms_1") or 
+                    await self.page.query_selector("#lsBdyView")
+                )
+                if main_tab:
+                    await main_tab.click()
+                    await asyncio.sleep(2)
+                else:
+                    logger.warning("%s: main tab not found, re-navigating to source URL", self.name)
+                    await self.safe_navigate(self.source_url)
         except Exception:
             logger.debug("%s: error during attachment scraping", self.name, exc_info=True)
+            try:
+                if not self.page.is_closed():
+                    await self.safe_navigate(self.source_url)
+            except: pass
 
         return results
 

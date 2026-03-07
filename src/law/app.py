@@ -134,7 +134,10 @@ class LawScraperApp(App):
 
                 except Exception as e:
                     error_msg = str(e)
-                    self._log(f"[red]Error: {error_msg}[/red]")
+                    if "Target page, context or browser has been closed" in error_msg:
+                        self._log("[red]Error: Browser disconnected or closed unexpectedly.[/red]")
+                    else:
+                        self._log(f"[red]Error: {error_msg}[/red]")
                     logger.exception("Scraping error for %s", source_key)
                 finally:
                     await scraper.close()
@@ -192,7 +195,18 @@ class LawScraperApp(App):
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+    # Ensure logs directory exists
+    from pathlib import Path
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        filename=log_dir / "app.log",
+        filemode="a",
+        encoding="utf-8",
+    )
     app = LawScraperApp()
     app.run()
 

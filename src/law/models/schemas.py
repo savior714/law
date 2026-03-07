@@ -12,6 +12,7 @@ class Attachment(BaseModel):
 
     name: str
     pdf_url: str | None = None
+    hwpx_url: str | None = None
     hwp_url: str | None = None
     has_pdf_priority: bool = False
 
@@ -39,9 +40,9 @@ class StatuteArticle(BaseModel):
 
 
 class AdminRuleArticle(BaseModel):
-    """A single article from an administrative rule (범죄수사규칙)."""
+    """A single article from an administrative rule (경찰수사규칙)."""
 
-    source_key: str = "crime_investigation_rules"
+    source_key: str = "generic_admin_rule"
     rule_name: str
     part: str | None = None
     chapter: str | None = None

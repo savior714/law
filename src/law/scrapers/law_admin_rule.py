@@ -1,7 +1,4 @@
-"""Scraper for administrative rules on law.go.kr (범죄수사규칙).
-
-Uses the admRulInfoP.do page template.
-"""
+"""Generic scraper for administrative rules on law.go.kr (admRulInfoP.do template)."""
 
 from __future__ import annotations
 
@@ -16,20 +13,19 @@ from law.models.schemas import AdminRuleArticle, Attachment
 from law.scrapers.base import BaseScraper, SelectorNotFoundError
 from law.utils.text import clean_html_text
 
-logger = logging.getLogger(__name__)
-
-SOURCE_KEY = "crime_investigation_rules"
+# SOURCE_KEY should be passed during instantiation
 
 
 class AdminRuleScraper(BaseScraper):
     """Scrapes administrative rule articles from law.go.kr admRulInfoP.do."""
 
-    def __init__(self) -> None:
+    def __init__(self, source_key: str) -> None:
         super().__init__()
-        src = SOURCES[SOURCE_KEY]
-        self.name = SOURCE_KEY
+        src = SOURCES[source_key]
+        self.name = source_key
         self.source_url = src["url"]
         self._rule_name = src["name"]
+        self._source_key = source_key
 
     async def validate_page_loaded(self) -> bool:
         sel = SELECTORS_LAW["admin_body_content"]
@@ -52,6 +48,16 @@ class AdminRuleScraper(BaseScraper):
         if body_el is None:
             return
 
+        # Decompose sidebar, controls and UI layers if they are inside body_el
+        noise_selectors = [
+            "#leftContent", "#lawContls", ".ls_btn", 
+            ".p_layer_copy", "[class*='layer_copy']",
+            "#lsByl", ".ls_sms_list", ".pconfile", ".note_list"
+        ]
+        for ns in noise_selectors:
+            for noise in body_el.select(ns):
+                noise.decompose()
+                
         articles = self._extract_articles(body_el, attachments)
 
         for article in articles:

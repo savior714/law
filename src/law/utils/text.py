@@ -8,6 +8,8 @@ import re
 def normalize_whitespace(text: str) -> str:
     """Normalize line endings and collapse excessive blank lines."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Strip spaces from Each line to allow \n\n matching
+    text = "\n".join(line.strip() for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

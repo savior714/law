@@ -59,7 +59,7 @@ c:\develop\law\
 │       │   ├── __init__.py
 │       │   ├── base.py             # BaseScraper 추상 클래스
 │       │   ├── law_statute.py      # 형법, 형사소송법, 경찰관직무집행법
-│       │   ├── law_admin_rule.py   # 범죄수사규칙
+│       │   ├── law_admin_rule.py   # 경찰수사규칙
 │       │   ├── law_precedent.py    # law.go.kr 판례검색
 │       │   └── scourt_precedent.py # portal.scourt.go.kr 판례
 │       ├── export/
@@ -174,7 +174,7 @@ class BaseScraper(ABC):
 
 **출력**: 조(Article) 단위 `StatuteArticle` 레코드
 
-### 3.3 행정규칙 스크래퍼: `law_admin_rule.py` (범죄수사규칙)
+### 3.3 행정규칙 스크래퍼: `law_admin_rule.py` (경찰수사규칙)
 
 law.go.kr의 `admRulInfoP.do` 템플릿 사용.
 
@@ -243,7 +243,7 @@ law.go.kr `precSc.do` 페이지 대상.
 │                                                 │
 │  [1] Scrape Sources                             │
 │  ┌─────────────────────────────────────┐        │
-│  │ ☐ 범죄수사규칙                      │        │
+│  │ ☐ 경찰수사규칙                      │        │
 │  │ ☐ 경찰관직무집행법                  │        │
 │  │ ☐ 형사소송법                        │        │
 │  │ ☐ 형법                              │        │
@@ -312,7 +312,7 @@ CREATE TABLE statutes (
 );
 CREATE UNIQUE INDEX idx_statutes_unique ON statutes(source_key, article_number);
 
--- 행정규칙 테이블: 범죄수사규칙
+-- 행정규칙 테이블: 경찰수사규칙
 CREATE TABLE admin_rules (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     source_key      TEXT NOT NULL DEFAULT 'crime_investigation_rules',
@@ -404,7 +404,7 @@ class Precedent(BaseModel):
 
 | source_key | 이름 | URL | 스크래퍼 | 테이블 |
 |---|---|---|---|---|
-| `crime_investigation_rules` | 범죄수사규칙 | law.go.kr/admRulInfoP.do?admRulSeq=2100000272092 | law_admin_rule | admin_rules |
+| `police_investigation_rules` | 경찰수사규칙 | law.go.kr/admRulInfoP.do?admRulSeq=2100000272092 | law_admin_rule | admin_rules |
 | `police_duties_act` | 경찰관직무집행법 | law.go.kr/lsInfoP.do?lsId=013976 | law_statute | statutes |
 | `criminal_procedure_act` | 형사소송법 | law.go.kr/lsInfoP.do?lsId=001671 | law_statute | statutes |
 | `criminal_act` | 형법 | law.go.kr/lsSc.do?query=형법 | law_statute | statutes |
