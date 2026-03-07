@@ -7,13 +7,25 @@ from typing import Any
 
 def format_statute(row: Any) -> str:
     """Format a statute row into a text block for a bundle file."""
+    # Build clean hierarchy path (excluding the article itself which is in the title)
     hierarchy_parts = [p for p in [row["part"], row["chapter"], row["section"], row["subsection"]] if p]
     hierarchy = " > ".join(hierarchy_parts)
 
-    title = f"({row['article_title']})" if row["article_title"] else ""
-    header = f"[{row['law_name']}] {hierarchy} > {row['article_number']} {title}".strip()
+    law_name = f"[{row['law_name']}]"
+    title = f"({row['article_title']})" if row['article_title'] else ""
+    # Header: [Law Name] Hierarchy > Article Num (Title)
+    header = f"{law_name} {hierarchy} > {row['article_number']} {title}".strip()
+    header = re.sub(r"\s+>\s+", " > ", header)
 
-    return f"---\n## {header}\n\n{row['content']}\n"
+    # Metadata section for better AI context
+    metadata = [f"- 법령명: {row['law_name']}"]
+    if hierarchy:
+        metadata.append(f"- 체계: {hierarchy}")
+    metadata.append(f"- 조문: {row['article_number']} {title}")
+    
+    meta_block = "\n".join(metadata)
+
+    return f"---\n## {header}\n\n{meta_block}\n\n{row['content']}\n"
 
 
 def format_admin_rule(row: Any) -> str:
@@ -21,11 +33,21 @@ def format_admin_rule(row: Any) -> str:
     hierarchy_parts = [p for p in [row["part"], row["chapter"], row["section"]] if p]
     hierarchy = " > ".join(hierarchy_parts)
 
-    title = f"({row['article_title']})" if row["article_title"] else ""
+    rule_name = f"[{row['rule_name']}]"
+    title = f"({row['article_title']})" if row['article_title'] else ""
     prefix = f"{hierarchy} > " if hierarchy else ""
-    header = f"[{row['rule_name']}] {prefix}{row['article_number']} {title}".strip()
+    header = f"{rule_name} {prefix}{row['article_number']} {title}".strip()
+    header = re.sub(r"\s+>\s+", " > ", header)
 
-    return f"---\n## {header}\n\n{row['content']}\n"
+    # Metadata section for better AI context
+    metadata = [f"- 규정이름: {row['rule_name']}"]
+    if hierarchy:
+        metadata.append(f"- 체계: {hierarchy}")
+    metadata.append(f"- 조문: {row['article_number']} {title}")
+    
+    meta_block = "\n".join(metadata)
+
+    return f"---\n## {header}\n\n{meta_block}\n\n{row['content']}\n"
 
 
 def format_precedent(row: Any) -> str:

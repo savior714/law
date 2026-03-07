@@ -1,9 +1,7 @@
 @echo off
 @chcp 65001 > nul
 
-:: Maximize terminal window using PowerShell
-powershell -NoProfile -Command "& { . ($profile | Split-Path)\Microsoft.PowerShell_profile.ps1; $w = Get-Host; $w.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size(200,3000); $w.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size(200,60); (Get-Process -Id $PID).MainWindowHandle; } > $null"
-:: Alternative method for standard CMD/Powershell window
-powershell -NoProfile -Command "(Get-Host).UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size((Get-Host).UI.RawUI.MaxWindowSize.Width, (Get-Host).UI.RawUI.MaxWindowSize.Height)" 2>nul
+:: Maximize terminal window reliably using PowerShell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws=New-Object -ComObject WScript.Shell; $ws.SendKeys('{F11}'); $h=(Get-Host).UI.RawUI; $m=$h.MaxWindowSize; $s=$h.WindowSize; $s.Width=$m.Width; $s.Height=$m.Height; $h.WindowSize=$s;" 2>nul
 
 uv run law
