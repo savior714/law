@@ -47,14 +47,14 @@ SOURCES: dict[str, dict] = {
         "table": "statutes",
     },
     "investigation_standards": {
-        "name": "검사와 사법경찰관의 상호협력과 일반적 수사준칙에 관한 규정",
+        "name": "검사와 사법경찰관의 상호협력과 일반적 수사준칙에 관한 규정(수사준칙)",
         "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=255305",
         "scraper": "law_statute",
         "table": "statutes",
     },
     "criminal_act": {
         "name": "형법",
-        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=282557",
+        "url": "https://law.go.kr/LSW/lsInfoP.do?lsId=001692&ancYnChk=0#0000",
         "scraper": "law_statute",
         "table": "statutes",
     },

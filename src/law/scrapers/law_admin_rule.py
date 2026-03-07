@@ -1,7 +1,11 @@
-"""Generic scraper for administrative rules on law.go.kr (admRulInfoP.do template)."""
+"""Scraper for administrative rules on law.go.kr (범죄수사규칙 etc.).
+
+Uses admRulInfoP.do template.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncGenerator
@@ -9,7 +13,7 @@ from collections.abc import AsyncGenerator
 from bs4 import BeautifulSoup
 
 from law.config import SELECTORS_LAW, SOURCES
-from law.models.schemas import AdminRuleArticle, Attachment
+from law.models.schemas import AdminRuleArticle
 from law.scrapers.base import BaseScraper, SelectorNotFoundError
 from law.utils.text import clean_html_text
 
@@ -17,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AdminRuleScraper(BaseScraper):
-    """Scrapes administrative rule articles from law.go.kr admRulInfoP.do."""
+    """Scrapes administrative rule articles from law.go.kr using structural extraction."""
 
     def __init__(self, source_key: str) -> None:
         super().__init__()
@@ -28,112 +32,135 @@ class AdminRuleScraper(BaseScraper):
         self._source_key = source_key
 
     async def validate_page_loaded(self) -> bool:
-        sel = SELECTORS_LAW["admin_body_content"]
-        el = await self.page.query_selector(sel)
+        body = SELECTORS_LAW["law_body"]
+        alt = SELECTORS_LAW["body_content"]
+        el = await self.page.query_selector(body) or await self.page.query_selector(alt) or await self.page.query_selector("#bodyId")
         if el is None:
-            raise SelectorNotFoundError(f"{self.name}: {sel} not found")
+            raise SelectorNotFoundError(f"{self.name}: neither {body} nor {alt} found")
         return True
 
+    async def _wait_for_law_body(self, timeout: int = 30_000) -> None:
+        """Wait until main content has actual text content."""
+        deadline = asyncio.get_event_loop().time() + (timeout / 1000)
+        while asyncio.get_event_loop().time() < deadline:
+            has_content = await self.page.evaluate("""() => {
+                const el = document.querySelector('#lsBdy') || document.querySelector('#bodyContent') || document.querySelector('#conScroll');
+                return el && el.innerText.trim().length > 100;
+            }""")
+            if has_content:
+                return
+            await asyncio.sleep(0.5)
+
     async def scrape(self) -> AsyncGenerator[AdminRuleArticle, None]:
-        await self.safe_navigate(self.source_url, wait_selector=SELECTORS_LAW["admin_body_content"])
+        await self.safe_navigate(self.source_url)
+        await self._wait_for_law_body()
         await self.validate_page_loaded()
 
-        # Step 1: Collect attachments (별표/서식) using base method
+        # Step 1: Collect attachments
         attachments = await self._scrape_attachments()
 
+        # Step 2: Extract Hierarchy
         html = await self.get_page_content()
         soup = BeautifulSoup(html, "lxml")
+        hierarchy = self._extract_hierarchy(soup)
 
-        body_el = soup.select_one(SELECTORS_LAW["admin_body_content"])
-        if body_el is None:
-            return
+        # Step 3: Structural Article Extraction
+        logger.info("%s: performing structural article extraction...", self.name)
+        extracted_data = await self.page.evaluate("""() => {
+            const results = [];
+            const container = document.querySelector('#bodyContent') || document.querySelector('#lsBdy') || document.querySelector('#conScroll');
+            if (!container) return [];
 
-        # Decompose sidebar, controls and UI layers if they are inside body_el
-        noise_selectors = [
-            "#leftContent", "#lawContls", ".ls_btn", 
-            ".p_layer_copy", "[class*='layer_copy']",
-            "#lsByl", ".ls_sms_list", ".pconfile", ".note_list"
-        ]
-        for ns in noise_selectors:
-            for noise in body_el.select(ns):
-                noise.decompose()
-                
-        # Split by article marker
-        raw = body_el.get_text("\n")
-        
-        # Split 본칙 vs 부칙
-        main_body_text = raw
-        addendum_text = ""
-        
-        if "부칙" in raw:
-            if "\n부칙\n" in raw:
-                parts_body = raw.split("\n부칙\n", 1)
-                main_body_text = parts_body[0]
-                addendum_text = parts_body[1]
-            elif "부      칙" in raw:
-                parts_body = raw.split("부      칙", 1)
-                main_body_text = parts_body[0]
-                addendum_text = parts_body[1]
+            const allElements = Array.from(container.querySelectorAll('div, p'));
+            let currentArticle = null;
+            let currentAddendum = null;
 
-        all_articles: list[AdminRuleArticle] = []
-        current_ctx: dict[str, str | None] = {"part": None, "chapter": None, "section": None}
+            for (const el of allElements) {
+                const txt = el.innerText.trim();
+                if (!txt || txt.length < 2) continue;
 
-        def parse_text_to_articles(text: str, is_addendum: bool = False) -> list[AdminRuleArticle]:
-            results = []
-            # Split by "제N조"
-            item_parts = re.split(r"(?=제\d+조(?:의\d+)?\s*[\(（])", text)
-            
-            for part in item_parts:
-                part = part.strip()
-                if not part: continue
-                
-                # Track hierarchy markers
-                for line in part.split("\n"):
-                    line = line.strip()
-                    if re.match(r"제\d+편", line):
-                        current_ctx["part"] = line
-                        current_ctx["chapter"] = None
-                        current_ctx["section"] = None
-                    elif re.match(r"제\d+장", line):
-                        current_ctx["chapter"] = line
-                        current_ctx["section"] = None
-                    elif re.match(r"제\d+절", line):
-                        current_ctx["section"] = line
+                if (txt.includes('부 칙')) {
+                    const m = txt.match(/부\s*칙\s*[<＜]([^>＞]+)[>＞]/);
+                    currentAddendum = m ? m[1] : "기본";
+                    continue;
+                }
 
-                # Match "제1조(목적) ..."
-                m = re.match(r"(제\d+조(?:의\d+)?)\s*[\(（]([^)）]+)[\)）](.*)", part, re.DOTALL)
-                if not m: continue
-                
-                article_num = m.group(1).strip()
-                if is_addendum:
-                    article_num = f"[부칙] {article_num}"
+                // Match Article Header: "제1조(목적)"
+                const headerMatch = txt.match(/^(제\d+조(?:의\d+)?)\s*[\(（]([^)）]+)[\)）]/);
+                if (headerMatch) {
+                    if (currentArticle) results.push(currentArticle);
                     
-                title = m.group(2).strip()
-                content_body = m.group(3).strip()
-                full_content = f"{article_num}({title})\n{content_body}"
-                full_content = clean_html_text(full_content)
+                    currentArticle = {
+                        number: headerMatch[1],
+                        title: headerMatch[2],
+                        content: txt,
+                        is_addendum: !!currentAddendum,
+                        addendum_name: currentAddendum
+                    };
+                } else if (currentArticle) {
+                    if (!currentArticle.content.includes(txt)) {
+                        currentArticle.content += "\\n" + txt;
+                    }
+                }
+            }
+            if (currentArticle) results.push(currentArticle);
+            return results;
+        }""")
 
-                results.append(
-                    AdminRuleArticle(
-                        source_key=self._source_key,
-                        rule_name=self._rule_name,
-                        part=current_ctx.get("part"),
-                        chapter=current_ctx.get("chapter"),
-                        section=current_ctx.get("section"),
-                        article_number=article_num,
-                        article_title=title,
-                        content=full_content,
-                        attachments=attachments if not all_articles and not results else [],
-                    )
-                )
-            return results
+        all_articles = []
+        for i, item in enumerate(extracted_data):
+            art_num = item["number"]
+            title = item["title"]
+            content = item["content"]
+            is_add = item["is_addendum"]
+            add_name = item["addendum_name"]
 
-        main_articles = parse_text_to_articles(main_body_text, is_addendum=False)
-        all_articles.extend(main_articles)
-        addendum_articles = parse_text_to_articles(addendum_text, is_addendum=True)
-        all_articles.extend(addendum_articles)
+            if is_add:
+                prefix = f"[부칙 <{add_name}>]" if add_name and add_name != "기본" else "[부칙]"
+                art_num_display = f"{prefix} {art_num}"
+            else:
+                art_num_display = art_num
 
-        for article in all_articles:
+            clean_content = clean_html_text(content)
+            ctx = hierarchy.get(art_num, {})
+            
+            article = AdminRuleArticle(
+                source_key=self._source_key,
+                rule_name=self._rule_name,
+                part=ctx.get("part"),
+                chapter=ctx.get("chapter"),
+                section=ctx.get("section"),
+                article_number=art_num_display,
+                article_title=title,
+                content=clean_content,
+                attachments=attachments if i == 0 else [],
+            )
+            all_articles.append(article)
             yield article
 
-        logger.info("%s: extracted %d articles", self.name, len(all_articles))
+        logger.info("%s: successfully extracted %d articles structurally", self.name, len(all_articles))
+
+    def _extract_hierarchy(self, soup: BeautifulSoup) -> dict[str, dict]:
+        """Build hierarchy mapping for administrative rules."""
+        hierarchy: dict[str, dict] = {}
+        current = {"part": None, "chapter": None, "section": None}
+
+        left = soup.select_one(SELECTORS_LAW["left_tree"])
+        if not left:
+            return hierarchy
+
+        for item in left.select(SELECTORS_LAW["article_tree_item"]):
+            text = item.get_text(strip=True)
+            if re.match(r"제\d+편", text):
+                current["part"] = text
+                current["chapter"] = None
+                current["section"] = None
+            elif re.match(r"제\d+장", text):
+                current["chapter"] = text
+                current["section"] = None
+            elif re.match(r"제\d+절", text):
+                current["section"] = text
+            elif m := re.match(r"(제\d+조(?:의\d+)?)", text):
+                hierarchy[m.group(1)] = dict(current)
+
+        return hierarchy

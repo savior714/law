@@ -1,10 +1,20 @@
 @echo off
 @chcp 65001 > nul
+title LAW_TUI
 
-:: Check if already maximized, if not, restart maximized
-if "%1"=="max" goto :run
-start /max cmd /c "%~f0" max
-exit
+echo ======================================================
+echo  [LAW TUI] Law Scraper Running
+echo ======================================================
+echo.
 
-:run
 uv run law
+
+if %ERRORLEVEL% neq 0 (
+    echo.
+    echo [Error] App Exit Code: %ERRORLEVEL%
+    pause
+) else (
+    echo.
+    echo [Success] Done.
+    timeout /t 3
+)

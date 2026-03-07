@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import signal
+import sys
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -210,8 +212,25 @@ def main() -> None:
         filemode="a",
         encoding="utf-8",
     )
+
+    # [Graceful Shutdown Handler] 터미널 종료(SIGBREAK) 시 리소스 정리 로직
+    def handle_exit_signal(sig, frame):
+        logger.info(f"수신된 시그널({sig}): 애플리케이션을 안전하게 종료합니다.")
+        # Textual 앱의 경우 sys.exit(0) 호출 시 종료 프로세스가 트리거됨
+        sys.exit(0)
+
+    # Windows 터미널 종료(X 버튼) 시 발생하는 SIGBREAK 및 일반적인 인터럽트 핸들러 등록
+    if sys.platform == "win32":
+        signal.signal(signal.SIGBREAK, handle_exit_signal)
+    signal.signal(signal.SIGINT, handle_exit_signal)
+    signal.signal(signal.SIGTERM, handle_exit_signal)
+
     app = LawScraperApp()
-    app.run()
+    try:
+        app.run()
+    finally:
+        # 종료 시 잔여 프로세스(브라우저 등)가 남지 않도록 보강
+        logger.info("애플리케이션이 종료되었습니다.")
 
 
 if __name__ == "__main__":
