@@ -4,12 +4,18 @@
 
 ## 개요
 
-법제처 국가법령센터(law.go.kr)와 사법정보공개포털(portal.scourt.go.kr)에서 형사 관련 법령과 판례를 자동 수집하고, NotebookLM에 바로 넣을 수 있는 텍스트 번들로 변환합니다.
+법제처 국가법령센터(law.go.kr)와 사법정보공개포털(portal.scourt.go.kr)에서 형사 관련 법령과 판례를 자동 수집하고, **계층 구조(조, 항, 호, 목)를 보존한 채 NotebookLM RAG에 최적화된 텍스트 번들**로 변환합니다.
+
+## 특징 및 개선 사항
+
+- **가독성 최적화:** 법령 본문의 항(①), 호(1. - 2칸), 목(가. - 4칸) 계층에 따른 **자동 들여쓰기**를 적용하여 AI와 사용자 모두에게 명확한 구조를 제공합니다.
+- **노이즈 제거:** 법제처의 UI 요소(주소 복사, 툴바 등)를 완벽히 제거한 순수 법령 텍스트만 추출합니다.
+- **행정규칙 지원:** '경찰수사규칙'과 같은 행정규칙(admRulInfoP.do) 템플릿의 완벽한 수집을 지원합니다.
 
 ## 수집 대상
 
 | 소스 | 사이트 | 설명 |
-|---|---|---|
+| :--- | :--- | :--- |
 | 형법 | law.go.kr | 형법 전문 (총칙/각칙) |
 | 형사소송법 | law.go.kr | 형사소송법 전문 |
 | 경찰관직무집행법 | law.go.kr | 경찰관직무집행법 전문 |
@@ -45,7 +51,7 @@ uv run law
 
 ## 파이프라인
 
-```
+```text
 1. Scrape  →  Playwright로 대상 사이트에서 법령/판례 수집
 2. Store   →  Pydantic 검증 후 SQLite에 저장
 3. Export  →  SQLite → NotebookLM용 BUNDLE txt 파일로 변환
@@ -53,7 +59,7 @@ uv run law
 
 ## 프로젝트 구조
 
-```
+```text
 src/law/
 ├── app.py              # Textual TUI 진입점
 ├── config.py           # URL, 셀렉터, 경로 상수
@@ -67,6 +73,7 @@ src/law/
 ## 출력물
 
 `data/export/` 폴더에 생성:
+
 - `00_MASTER_ATLAS.md` - 데이터셋 인덱스
 - `BUNDLE_STATUTE_XX.txt` - 법령 번들
 - `BUNDLE_ADMIN_RULE_XX.txt` - 행정규칙 번들

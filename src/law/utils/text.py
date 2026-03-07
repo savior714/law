@@ -52,14 +52,22 @@ def clean_html_text(text: str) -> str:
         if not flowed_lines:
             flowed_lines.append(line)
         else:
-            # If line starts with a structural marker, start a new line
-            if struct_marker.match(line):
-                flowed_lines.append(line)
+            # Check if line starts with a structural marker
+            m = struct_marker.match(line)
+            if m:
+                # Identification for indentation
+                marker = m.group(1)
+                indent = ""
+                if re.match(r"^\d+[.\)]", marker):  # Item (호: 1., 2.)
+                    indent = "  "
+                elif re.match(r"^[가-하][.\)]", marker):  # Point (목: 가., 나.)
+                    indent = "    "
+                
+                flowed_lines.append(indent + line)
             else:
                 # Join with previous line using a single space
                 flowed_lines[-1] = f"{flowed_lines[-1]} {line}"
 
-    # Final join and whitespace cleanup
+    # Final join. (Note: normalize_whitespace will still clean up \n\n\n)
     result = "\n".join(flowed_lines)
-    result = re.sub(r" +", " ", result)
     return normalize_whitespace(result)

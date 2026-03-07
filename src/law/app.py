@@ -162,7 +162,7 @@ class LawScraperApp(App):
         if scraper_type == "law_statute":
             return StatuteScraper(source_key)
         elif scraper_type == "law_admin_rule":
-            return AdminRuleScraper()
+            return AdminRuleScraper(source_key)
         elif scraper_type == "law_precedent":
             return LawPrecedentScraper()
         elif scraper_type == "scourt_precedent":

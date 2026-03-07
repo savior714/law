@@ -98,7 +98,7 @@ class AdminRuleScraper(BaseScraper):
             article_num = m.group(1)
             title = m.group(2).strip()
             content_body = m.group(3).strip()
-            full_content = f"{article_num}({title}) {content_body}"
+            full_content = f"{article_num}({title})\n{content_body}"
             full_content = clean_html_text(full_content)
 
             articles.append(

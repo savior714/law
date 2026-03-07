@@ -129,3 +129,15 @@
 - Actions:
   - run.bat: 오류 가능성이 높은 PowerShell 제어 대신 Windows 표준 명령어인 'start /max'를 활용한 재처리 로직으로 변경.
   - 결과: 제목 표시줄(최소화/닫기 버튼) 보존 및 확실한 최대화 창 실행 보장.
+
+## 2026-03-07 18:58:00
+- Task: 'Dataset build 시 re 모듈 미정의 에러' 수정
+- Edit: src/law/export/formatter.py 내 missing import 're' 추가
+- Edit: src/law/app.py 내 AdminRuleScraper 생성 시 source_key 누락 수정
+- Result: Dataset 빌드 에러 해결
+
+## 2026-03-07 19:10:00
+- Task: 법령 텍스트 들여쓰기 가독성 개선
+- Edit: src/law/utils/text.py - 호(Item, 2칸) 및 목(Point, 4칸) 자동 들여쓰기 로직 구현
+- Edit: src/law/scrapers/law_statute.py & law_admin_rule.py - 조문 제목/본문 계층 분리를 위한 줄바꿈 추가
+- Result: NotebookLM 데이터셋 가독성 및 RAG 구조 최적화 완료
