@@ -104,9 +104,10 @@
 ### 12-1. 아키텍처: WAF 우회를 위한 브라우저 내 fetch()
 
 * **문제:** 포털은 외부 직접 HTTP 요청(httpx, requests 등)을 WAF(Web Application Firewall)로 탐지하여 차단한다. 에러 응답: {"timestamp": ..., "errors": {"errorMessage": "사용에 불편을 드려서 죄송..."} }.
-* **해결 원칙 (Critical):** **Playwright 브라우저로 포털에 실제 접속한 뒤, page.evaluate()를 통해 브라우저 컨텍스트 내부에서 etch()를 실행한다.**
-  * 이 방식은 JSESSIONID, WMONID 등 세션 쿠키가 자동으로 포함되어 WAF를 우회한다.
-  * WebSquare5 초기화를 위해 **최소 15초(SCOURT_INIT_WAIT_SEC)** 대기 후 API 호출을 시작해야 한다.
+* **해결 원칙 (Critical):** **Playwright 브라우저의 실제 UI 상호작용(클릭, 입력)을 주력으로 사용한다.**
+  * 내부 API(fetch) 호출은 세션 및 CSRF 토큰 검증이 매우 까다로워(500 에러 빈번) 안정성이 낮다.
+  * 따라서 좌측 메뉴 트리 클릭, 검색 버튼 클릭, 페이지네이션 버튼 클릭을 통해 데이터를 로드하고 DOM에서 직접 추출한다.
+  * WebSquare5 초기화 및 안정적인 렌더링을 위해 **최소 15초(SCOURT_INIT_WAIT_SEC)** 대기 후 작업을 시작한다.
 * **금지:** 포털 API를 외부에서 httpx 등으로 직접 호출하는 방식은 재작성하지 말 것.
 
 ### 12-2. 확인된 API 엔드포인트 및 파라미터 (브라우저 인터셉트, 2026-03-08)
@@ -135,14 +136,13 @@
   * srchwd는 반드시 비어있지 않아야 한다 ("형사" 권장)
   * pageNo, pageSize는 **문자열 타입**으로 전달해야 한다
 * **응답 구조:** { "data": { "dlt_jdcpctRslt": [...] } }
-* **목록 항목 필드명 (Critical — 직관적 이름과 다름):**
-  * jisCntntsSrno: 판례 고유 일련번호 (상세 API 키)
-  * csNoLstCtt: 사건번호 (caseNo가 아님!)
-  * csNmLstCtt: 사건명 (jdcpctTitl이 아님!)
-  * cortNm: 법원명 (courtNm이 아님!)
-  * prnjdgYmd: 선고일자, **YYYYMMDD 형식** (jdmntDt가 아님!)
-  * jdcpctCdcsCdNm: 사건종류명 (예: "형사")
-  * jdcpctSumrCtt: 판결 요약 미리보기 (HTML 포함)
+* **목록 수집 (UI Selection):**
+  * 검색 결과 목록 버튼: `a[id*='gen_cntntsList_'][id$='btn_jisCsNoCsNm']`
+  * 항목별 고유 번호(jisCntntsSrno): 위 버튼 ID 문자열 파싱 또는 `page.evaluate()`로 내부 데이터 객체 접근.
+  * 사건번호/선고일/사건명: 해당 `<a>` 태그의 텍스트 콘텐츠 파싱.
+* **페이지네이션 (Pagination):**
+  * 다음 페이지 버튼: `.w2pageList_col_next`
+  * WebSquare5 특성상 클릭 후 "조회중" 레이어가 사라질 때까지 대기 필수.
 
 #### 상세 본문 조회 API
 * **URL:** POST https://portal.scourt.go.kr/pgp/pgp1011/selectJdcpctCtxt.on
