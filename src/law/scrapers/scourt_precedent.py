@@ -32,6 +32,7 @@ from law.config import (
 )
 from law.models.schemas import Precedent
 from law.scrapers.base import BaseScraper
+from law.utils.text import clean_html_text
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +42,13 @@ SOURCE_KEY = "scourt_criminal_precedent"
 _SEL_TREE_CASE_TYPE = "#mf_mainFrame_trv_jdcpctGrp_label_7"  # 사건종류
 _SEL_TREE_CRIMINAL = "#mf_mainFrame_trv_jdcpctGrp_label_9"   # 형사
 _SEL_TOTAL_COUNT = "#mf_mainFrame_spn_totalCount"
-_SEL_LIST_ITEMS = "a[id*='gen_cntntsList_'][id$='btn_jisCsNoCsNm']"
+_SEL_LIST_ITEMS = "a[id*='gen_cntntsList_'], a[title='새 창 열림']" # 모든 목록 내부 링크 포괄
 _SEL_PAGING_NEXT = ".w2pageList_col_next"
 _SEL_LOADING_LAYER = "#___processbar_res"
 
 # ── Detail API Script (브라우저 컨텍스트용) ─────────────────────────────
 _DETAIL_FETCH_JS = """
-async (apiPath, jisSrno) => {
+async ({apiPath, jisSrno}) => {
     const payload = {
         "dma_searchParam": {
             "jisCntntsSrno": jisSrno,
@@ -71,8 +72,12 @@ async (apiPath, jisSrno) => {
         body: JSON.stringify(payload)
     });
     if (!resp.ok) return { status: resp.status, data: null };
-    const data = await resp.json();
-    return { status: resp.status, data: data };
+    try {
+        const data = await resp.json();
+        return { status: resp.status, data: data };
+    } catch (e) {
+        return { status: resp.status, data: null, error: e.message };
+    }
 }
 """
 
@@ -91,11 +96,14 @@ def _parse_date(text: str | None) -> date | None:
 
 
 def _extract_section_html(html: str, marker: str) -> str | None:
-    """HTML 본문에서 특정 마커 섹션 추출."""
+    """HTML 본문에서 특정 마커 섹션 추출 및 정규화."""
     if not html:
         return None
     soup = BeautifulSoup(html, "lxml")
-    full = soup.get_text("\n")
+    # soup.get_text("\n")을 쓰되, clean_html_text로 문단 병합 수행
+    full = clean_html_text(soup.get_text("\n"))
+    
+    # 마커 추출 패턴 (【마커】 형식 대응)
     pattern = rf"【{re.escape(marker)}】(.*?)(?=【[^】]+】|$)"
     m = re.search(pattern, full, re.DOTALL)
     if m:
@@ -120,15 +128,43 @@ class ScourtPrecedentScraper(BaseScraper):
 
         # 1. 사건종류 그룹 확장 (필요 시)
         try:
-            await self.page.click(_SEL_TREE_CASE_TYPE, timeout=5000)
-            await asyncio.sleep(1)
+            logger.info("%s: '사건종류' 트리 확장 시도...", self.name)
+            group_el = await self.page.wait_for_selector(_SEL_TREE_CASE_TYPE, timeout=5000)
+            if group_el:
+                await group_el.click()
+                await asyncio.sleep(1.5)
         except Exception:
-            pass
+            logger.debug("%s: '사건종류' 트리 확장 생략 또는 실패", self.name)
 
         # 2. '형사' 카테고리 클릭
-        logger.info("%s: '형사' 카테고리 클릭 및 결과 로딩...", self.name)
-        await self.page.click(_SEL_TREE_CRIMINAL)
+        logger.info("%s: '형사' 카테고리 선택 시도...", self.name)
+        try:
+            el = await self.page.wait_for_selector(_SEL_TREE_CRIMINAL, timeout=10000)
+            if el:
+                await el.scroll_into_view_if_needed()
+                # 텍스트 확인
+                tree_text = await el.inner_text()
+                logger.info("%s: 트리 노드 발견 — '%s' (ID: %s)", self.name, tree_text.strip(), await el.get_attribute("id"))
+                
+                await el.dispatch_event("mousedown")
+                await asyncio.sleep(0.2)
+                await el.dispatch_event("mouseup")
+                await el.click()
+                logger.info("%s: '형사' 필터 적용 완료", self.name)
+            else:
+                logger.error("%s: '형사' 트리 노드를 찾을 수 없습니다.", self.name)
+                raise RuntimeError(f"{self.name}: '형사' 트리 노드를 찾을 수 없어 초기화 실패.")
+        except Exception as e:
+            logger.error("%s: '형사' 카테고리 클릭 실패: %s", self.name, e)
+            raise RuntimeError(f"{self.name}: '형사' 카테고리 클릭 중 오류 발생: {e}")
+
         await self._wait_for_loading()
+        
+        # 3. 데이터 로드 확인 (총 건수 엘리먼트가 나타나고 숫자가 있을 때까지)
+        try:
+            await self.page.wait_for_selector(_SEL_TOTAL_COUNT, timeout=10000)
+        except Exception:
+            logger.warning("%s: 총 건수 엘리먼트 대기 중 타임아웃", self.name)
 
     async def _wait_for_loading(self, timeout_sec: int = 15) -> None:
         """WebSquare5 로딩 레이어가 사라질 때까지 대기."""
@@ -145,15 +181,61 @@ class ScourtPrecedentScraper(BaseScraper):
             logger.debug("%s: 로딩바 대기 타임아웃/생략", self.name)
         await asyncio.sleep(1)
 
+    async def validate_page_loaded(self) -> bool:
+        """포털 검색 결과 목록 컨테이너가 존재하는지 확인."""
+        try:
+            # 검색결과 총 건수 또는 목록 요소를 확인
+            el = await self.page.query_selector(_SEL_TOTAL_COUNT)
+            if el is None:
+                # 초기 로딩 시에는 카테고리 트리라도 있는지 확인
+                el = await self.page.query_selector(_SEL_TREE_CRIMINAL)
+            
+            if el is None:
+                raise SelectorNotFoundError(f"{self.name}: scourt portal main elements not found")
+            return True
+        except Exception as e:
+            logger.error(f"{self.name}: page validation failed: {e}")
+            return False
+
     async def _get_total_count(self) -> int:
         """UI에서 총 건수를 추출한다."""
-        text = await self.page.inner_text(_SEL_TOTAL_COUNT)
-        clean = re.sub(r"[^\d]", "", text)
-        return int(clean) if clean else 0
+        try:
+            # 텍스트가 로딩될 때까지 최대 10초 대기
+            for _ in range(20):
+                try:
+                    text = await self.page.inner_text(_SEL_TOTAL_COUNT, timeout=2000)
+                    if text and re.search(r"\d+", text):
+                        break
+                except Exception:
+                    text = ""
+                
+                # 클래스 폴백 (.w2textbox 중 숫자가 포함된 요소 탐색)
+                text = await self.page.evaluate("""() => {
+                    const el = Array.from(document.querySelectorAll('.w2textbox'))
+                                    .find(e => /\d+/.test(e.innerText) && (e.innerText.includes('총') || e.id.includes('totalCount')));
+                    return el ? el.innerText : '';
+                }""")
+                if text and re.search(r"\d+", text): break
+                await asyncio.sleep(0.5)
+
+            clean = re.sub(r"[^\d]", "", text or "")
+            value = int(clean) if clean else 0
+            logger.info("%s: 인식된 총 건수 — %d (원본: %s)", self.name, value, text)
+            return value
+        except Exception as e:
+            logger.warning("%s: 총 건수 추출 중 예외 발생 (무시하고 진행): %s", self.name, e)
+            return 0
 
     async def scrape(self) -> AsyncGenerator[Precedent, None]:
         """UI와 API를 조합하여 형사 판례를 수집한다."""
         await self._handle_initial_load()
+
+        # 결과 목록이 로드될 때까지 명시적 대기
+        try:
+            await self.page.wait_for_selector(_SEL_LIST_ITEMS, timeout=10000)
+            logger.info("%s: 결과 목록 로드 확인됨", self.name)
+        except Exception:
+            logger.warning("%s: 결과 목록 로딩이 지연되고 있습니다. 직접 진행합니다.", self.name)
 
         total = await self._get_total_count()
         if total == 0:
@@ -179,7 +261,7 @@ class ScourtPrecedentScraper(BaseScraper):
 
             logger.info("%s: 페이지 %d 처리 중 (%d건 발견)", self.name, current_page, len(items))
 
-            for item_el in items:
+            for i, item_el in enumerate(items):
                 if global_idx < skip_count:
                     global_idx += 1
                     continue
@@ -187,17 +269,19 @@ class ScourtPrecedentScraper(BaseScraper):
                 # 1. 항목 데이터 추출
                 full_text = await item_el.inner_text()
                 # ID에서 jisCntntsSrno 추출 (예: ...gen_cntntsList_0_btn_jisCsNoCsNm)
-                raw_id = await item_el.get_attribute("id")
-                # WebSquare 데이터 맵에서 실제 SRNO를 가져오는 게 더 안전함
+                raw_id = await item_el.get_attribute("id") or ""
+                # ID가 없거나 형식이 다를 경우 루프 인덱스(i)를 row_idx로 활용
                 idx_match = re.search(r"gen_cntntsList_(\d+)_", raw_id)
-                if not idx_match:
+                row_idx = int(idx_match.group(1)) if idx_match else i
+                jis_srno = await self.page.evaluate(
+                    "(row) => window.mf_mainFrame_dlt_jdcpctRslt?.getCellData(row, 'jisCntntsSrno')",
+                    int(row_idx)
+                )
+
+                if not jis_srno:
+                    logger.warning("%s: [%s] SRNO 추출 실패 — 생략", self.name, row_idx)
                     global_idx += 1
                     continue
-                
-                row_idx = idx_match.group(1)
-                jis_srno = await self.page.evaluate(
-                    f"mf_mainFrame_dlt_jdcpctRslt.getCellData({row_idx}, 'jisCntntsSrno')"
-                )
 
                 # 2. 상세 정보 API 호출 (브라우저 내 fetch)
                 prec = await self._build_precedent(jis_srno, full_text)
@@ -245,7 +329,7 @@ class ScourtPrecedentScraper(BaseScraper):
         # 상세 API 호출
         result = await self.page.evaluate(
             _DETAIL_FETCH_JS,
-            ["/pgp/pgp1011/selectJdcpctCtxt.on", jis_srno]
+            {"apiPath": "/pgp/pgp1011/selectJdcpctCtxt.on", "jisSrno": jis_srno}
         )
         
         status = result.get("status")

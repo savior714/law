@@ -59,15 +59,14 @@ def clean_html_text(text: str) -> str:
         if not flowed_lines:
             flowed_lines.append(line)
         elif m:
-            # Context-aware flowing:
-            # Even if it looks like a marker, if the previous line ends with a connector,
-            # it's likely a fragmented sentence (e.g. "... 법 [newline] 제10조").
+            # Precedent markers like [1], [2] should be preserved as 
+            # new blocks even if the previous line ends with a connector.
             prev_line = flowed_lines[-1].strip()
-            # If prev line ends with law-related keywords, flow it unless it's a clear Article Header
             is_article_header = "제" in m.group(1) and "(" in m.group(1)
             is_connector = re.search(r'(법|령|칙|항|호|목|절|장|편|관|등)$', prev_line)
+            is_precedent_marker = bool(re.match(r'^\[\d+\]', m.group(1)))
             
-            if is_connector and not is_article_header:
+            if is_connector and not is_article_header and not is_precedent_marker:
                 flowed_lines[-1] = f"{prev_line} {line}"
             else:
                 # New structural block
