@@ -68,6 +68,12 @@ SOURCES: dict[str, SourceConfig] = {
         scraper="law_statute",
         table="statutes",
     ),
+    "scourt_criminal_precedent": SourceConfig(
+        name="대법원 사법정보공개포털 형사판례",
+        url="https://portal.scourt.go.kr/pgp/index.on?m=PGP1011M01&l=N&c=900",
+        scraper="scourt_precedent",
+        table="precedents",
+    ),
 }
 
 # ── CSS Selectors: law.go.kr ──────────────────────────────────────────────
@@ -95,5 +101,14 @@ SELECTORS_SCOURT = {
     "pagination": None,  # WebSquare5 pagination — handled via JS click
 }
 
-# WebSquare5 requires ~15s for full JS initialization before any interaction
+# ── 사법정보공개포털 API 상수 ──────────────────────────────────────────────
+# 형사 사건종류코드 (jdcpctCdcsCd): "02" = 형사
+SCOURT_CRIMINAL_CASE_CODE = "02"
+# 한 페이지당 조회 건수 (최대 100)
+SCOURT_API_PAGE_SIZE = 100
+# API 요청 간 딜레이 (서버 부하 방지, 초)
+SCOURT_API_DELAY_SEC = 0.5
+# 상세 본문 조회 딜레이 (초)
+SCOURT_DETAIL_DELAY_SEC = 0.3
+# WebSquare5 requires ~15s for full JS initialization (브라우저 fallback용, 미사용)
 SCOURT_INIT_WAIT_SEC = 15
