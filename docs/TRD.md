@@ -6,7 +6,7 @@
 
 | 도구 | 용도 |
 |---|---|
-| Python 3.12+ | 런타임 |
+| Python 3.14 (64-bit) | 런타임 (최신 안정성 확보) |
 | uv | 패키지 관리, 가상환경, 스크립트 실행 |
 
 ### 1.2 핵심 라이브러리
@@ -40,50 +40,32 @@
 ### 2.1 폴더 구조
 
 ```
-c:\develop\law\
 ├── pyproject.toml
 ├── uv.lock
+├── .python-version
+├── run.bat                  # 터미널 전체화면/프로세스 정리 실행 파일
+├── reset_data.bat           # 데이터 하드리셋 도구
 ├── docs/
 │   ├── PRD.md
-│   └── TRD.md
+│   ├── TRD.md
+│   ├── CRITICAL_LOGIC.md    # SSOT (물리적 진실의 원천)
+│   └── memory.md            # 작업 이력 및 컨텍스트
+├── scripts/                 # 유틸리티 및 디버깅 도구 격리
+│   ├── check/               # 데이터 검증 (counts, schema, ids)
+│   ├── debug/               # HTML 덤프 및 탭 분석
+│   ├── find/                # 특정 조문/URL 조회
+│   ├── test/                # 단위/통합 테스트 스크립트
+│   ├── fix/                 # 환경 복구 도구
+│   └── research/            # DOM 구조 분석 R&D
 ├── src/
 │   └── law/
-│       ├── __init__.py
-│       ├── app.py                  # Textual TUI 앱 진입점
-│       ├── config.py               # 상수, URL, CSS 셀렉터, 경로
-│       ├── db/
-│       │   ├── __init__.py
-│       │   ├── schema.py           # SQLite DDL, 마이그레이션
-│       │   └── repository.py       # CRUD 오퍼레이션 (async)
-│       ├── scrapers/
-│       │   ├── __init__.py
-│       │   ├── base.py             # BaseScraper 추상 클래스
-│       │   ├── law_statute.py      # 형법, 형사소송법, 경찰관직무집행법
-│       │   ├── law_admin_rule.py   # 경찰수사규칙
-│       │   ├── law_precedent.py    # law.go.kr 판례검색
-│       │   └── scourt_precedent.py # portal.scourt.go.kr 판례
-│       ├── export/
-│       │   ├── __init__.py
-│       │   ├── builder.py          # 데이터셋 빌더: SQLite → txt 번들
-│       │   └── formatter.py        # NotebookLM용 레코드 포매팅
-│       ├── models/
-│       │   ├── __init__.py
-│       │   └── schemas.py          # Pydantic 모델 (Law, Precedent 등)
-│       └── utils/
-│           ├── __init__.py
-│           ├── integrity.py        # SHA-256 해시 기반 무결성 검증
-│           └── text.py             # 한글 텍스트 클리닝 유틸리티
+│       ├── app.py           # TUI 엔트리포인트 (SIGBREAK 핸들링)
+<truncated 22 lines>
+│           └── text.py      # 한글 텍스트 흐름(Flow) 및 들여쓰기 최적화
 ├── data/
-│   ├── law.db                      # SQLite DB (gitignored)
-│   └── export/                     # NotebookLM 번들 출력 (gitignored)
-│       ├── 00_MASTER_ATLAS.md
-│       ├── BUNDLE_STATUTE_01.txt
-│       ├── BUNDLE_PRECEDENT_01.txt
-│       └── ...
-└── tests/
-    ├── __init__.py
-    ├── test_scrapers.py
-    └── test_export.py
+│   ├── law.db               # UPSERT (source_key, article_number, title)
+│   └── export/              # BUNDLE_MAX_BYTES 단위 분할 출력
+└── tests/                   # pytest 기반 공식 테스트 코드
 ```
 
 ### 2.2 데이터 흐름
@@ -159,13 +141,14 @@ class BaseScraper(ABC):
 
 **Playwright 시나리오:**
 
-1. **페이지 접속**: `https://www.law.go.kr/LSW/lsInfoP.do?lsId={lsId}`로 이동
-2. **AJAX 대기**: `#lsBdy` (법령 본문 컨테이너) visible 대기
-3. **구조 추출**: 좌측 사이드바 트리(`.dep00`~`.dep05`)에서 계층 구조 파싱
-   - 편(Part) > 장(Chapter) > 절(Section) > 관(Sub-section) > 조(Article)
-4. **본문 추출**: `#lsBdy` 또는 `bodyContent` div에서 전체 법령 본문 HTML 추출
-5. **조문 파싱**: `제N조(제목)` 패턴으로 각 조(Article) 단위 분리, BeautifulSoup으로 항/호 파싱
-6. **형법 특별 처리**: `lsSc.do?query=형법` 검색 → 첫 번째 결과(형법 - 법률) 클릭 → 상세 페이지에서 2~5단계 수행
+1. **페이지 접속**: `lsInfoP.do` 직접 접근 (SSOT)
+2. **AJAX 대기 및 탭 보장**: `ensure_tab_active` 로직으로 [본문] 탭 상태 강제
+3. **구조적 추출 (Structural Extraction)**: 
+   - Javascript (`page.evaluate`) 기반의 DOM 순회 실행
+   - 조문 헤더 패턴(`.ls_nms_list` 등) 식별 및 본문 블록 병합
+   - 텍스트 기반 분할의 참조 문구 오작동(예: '법 제1조에 따라') 원천 차단
+4. **본칙/부칙 분리**: `addenda` 섹션을 물리적으로 분할하여 중복 번호 충돌 방지
+5. **별지 수집**: 단일 JS 실행으로 PDF/HWPX URL 고속 추출
 
 **핵심 CSS 셀렉터:**
 - 법령 본문: `#lsBdy`, `div[id="bodyContent"]`

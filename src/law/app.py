@@ -48,7 +48,7 @@ class LawScraperApp(App):
         yield Header()
         yield Static(" [1] Scrape Sources", id="label_scrape")
         yield SelectionList[str](
-            *[(info["name"], key) for key, info in SOURCES.items()],
+            *[(info.name, key) for key, info in SOURCES.items() if info.enabled],
             id="source_list",
         )
         yield Vertical(
@@ -107,35 +107,51 @@ class LawScraperApp(App):
 
             for idx, source_key in enumerate(selected_keys):
                 src = SOURCES[source_key]
-                self._log(f"\n[bold blue]>>> Scraping: {src['name']}[/bold blue]")
-                self._set_status(f"Scraping {src['name']} ({idx + 1}/{total_sources})")
+                self._log(f"\n[bold blue]>>> Scraping: {src.name}[/bold blue]")
+                self._set_status(f"Scraping {src.name} ({idx + 1}/{total_sources})")
                 self._set_progress((idx / total_sources) * 100)
 
                 run_id = await repo.start_run(source_key)
+                
+                # Check for existing checkpoint
+                last_checkpoint = await repo.get_last_checkpoint(source_key)
+                if last_checkpoint:
+                    self._log(f"  [yellow]Found existing checkpoint: {last_checkpoint}[/yellow]")
+
                 scraper = self._create_scraper(source_key)
                 if scraper is None:
                     self._log(f"[red]Unknown scraper for {source_key}[/red]")
                     continue
+                
+                scraper.resume_checkpoint = last_checkpoint
 
                 count = 0
                 error_msg = None
 
                 try:
-                    self._log(f"  [cyan]Preparing browser for {src['name']}...[/cyan]")
+                    self._log(f"  [cyan]Preparing browser for {src.name}...[/cyan]")
                     await scraper.init_browser()
                     
                     self._log(f"  [cyan]Navigating & Extraction started...[/cyan]")
+                    # For legal documents, we use index as checkpoint
+                    current_idx = int(last_checkpoint) if last_checkpoint and last_checkpoint.isdigit() else -1
+                    
                     async for record in scraper.scrape():
-                        if src["table"] == "statutes":
-                            await repo.upsert_statute(record, src["url"], run_id)
-                        elif src["table"] == "admin_rules":
-                            await repo.upsert_admin_rule(record, src["url"], run_id)
-                        elif src["table"] == "precedents":
-                            await repo.upsert_precedent(record, src["url"], run_id)
+                        if src.table == "statutes":
+                            await repo.upsert_statute(record, src.url, run_id)
+                        elif src.table == "admin_rules":
+                            await repo.upsert_admin_rule(record, src.url, run_id)
+                        elif src.table == "precedents":
+                            await repo.upsert_precedent(record, src.url, run_id)
+                        
                         count += 1
+                        current_idx += 1
+                        
+                        # Update checkpoint in DB every record
+                        await repo.update_checkpoint(run_id, str(current_idx))
 
                         if count % 10 == 0:
-                            self._log(f"  ... {count} records")
+                            self._log(f"  ... {count} records (cp: {current_idx})")
 
                 except Exception as e:
                     error_msg = str(e)
@@ -146,9 +162,12 @@ class LawScraperApp(App):
                     logger.exception("Scraping error for %s", source_key)
                 finally:
                     await scraper.close()
+                    # If finished successfully, we can mark checkpoint as 'completed'
+                    final_checkpoint = "completed" if not error_msg else str(current_idx)
+                    await repo.update_checkpoint(run_id, final_checkpoint)
                     await repo.finish_run(run_id, total=count, error=error_msg)
 
-                self._log(f"[green]{src['name']}: {count} records saved[/green]")
+                self._log(f"[green]{src.name}: {count} records saved[/green]")
 
             self._set_progress(100)
             self._set_status("Scraping complete")
@@ -159,17 +178,15 @@ class LawScraperApp(App):
 
     def _create_scraper(self, source_key: str):
         src = SOURCES[source_key]
-        scraper_type = src["scraper"]
+        scraper_cls = SCRAPER_MAP.get(src.scraper)
 
-        if scraper_type == "law_statute":
-            return StatuteScraper(source_key)
-        elif scraper_type == "law_admin_rule":
-            return AdminRuleScraper(source_key)
-        elif scraper_type == "law_precedent":
-            return LawPrecedentScraper()
-        elif scraper_type == "scourt_precedent":
-            return ScourtPrecedentScraper()
-        return None
+        if not scraper_cls:
+            return None
+
+        # Handle scrapers that need source_key correctly
+        if src.scraper in ("law_statute", "law_admin_rule"):
+            return scraper_cls(source_key)
+        return scraper_cls()
 
     # ── Build worker ───────────────────────────────────────────────────
 

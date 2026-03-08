@@ -12,8 +12,11 @@
 ## 3. 핵심 기능 (Key Features - Scope)
 
 - **MVP(최소 기능 제품) 범위:** 반드시 포함되어야 할 핵심 기능 목록.
-    - 소스들 범위 (https://www.law.go.kr/LSW//admRulInfoP.do?admRulSeq=2100000272092&chrClsCd=010201#AJAX, https://www.law.go.kr/LSW/lsInfoP.do?lsId=013976#AJAX, https://www.law.go.kr/LSW/lsInfoP.do?lsId=001671&ancYnChk=0#0000, https://www.law.go.kr/lsSc.do?query=%ED%98%95%EB%B2%95#AJAX, https://portal.scourt.go.kr/pgp/index.on?m=PGP1011M01&l=N&c=900 → 이거에서 ‘형사’ 만, https://www.law.go.kr/precSc.do) 전부 스크래핑
+    - 소스들 범위 (경찰수사규칙, 형사소송법, 형법, 수사준칙, 범죄수사규칙 등 핵심 5종) 전부 스크래핑
+    - **본칙/부칙 물리적 분리 수집:** 동일 조문 번호 충돌 방지를 위한 섹션 분할 및 식별자 강화
+    - **별지(별표/서식) 데이터 추출:** PDF 우선순위 기반의 부가 자료 수집 (HWPX, HWP 포함)
     - SQLite DB로 중간 저장 → MD/TXT로 변환 → NotebookLM용 번들 파일(~4MB 단위)로 분할 출력
+    - **데이터 도구화:** 검증(Check), 디버깅(Debug), 조회(Find) 스크립트를 통한 데이터 무결성 상시 확보
 - **제외 범위:**
     - 경찰 내부망 자료 연동 (외부 공개 자료 우선 구축 후 추후 검토)
     - 형사 외 다른 분야(민사, 행정 등) 법령/판례
@@ -27,6 +30,7 @@
     - 해당 소스(사이트별) 스크래핑 버튼 누르면 → 알아서 법률 내용들 다 긁어옴 → dataset 빌드
 - **UI 요구사항:** GUI preference (비-headless 선호), 화면 구성 요소 설명.
     - Python(uv) + Textual(TUI) 기반으로 개발. 소스 선택 체크박스, 스크래핑 시작/진행률, 데이터셋 빌드 버튼, 로그 출력으로 구성
+    - **터미널 프로세스 관리:** `run.bat`을 통한 원클릭 실행 및 창 최대화, 기존 프로세스 트리 정리 자동화
 
 ## 5. 성공 지표 (Success Metrics)
 

@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     finished_at     TEXT,
     status          TEXT NOT NULL DEFAULT 'running',
     total_records   INTEGER DEFAULT 0,
+    checkpoint      TEXT,
     error_message   TEXT
 );
 
@@ -102,6 +103,12 @@ async def init_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(DDL)
         
+        # Check if 'checkpoint' column exists in 'scrape_runs'
+        async with db.execute("PRAGMA table_info(scrape_runs)") as cursor:
+            cols = [row[1] for row in await cursor.fetchall()]
+            if "checkpoint" not in cols:
+                await db.execute("ALTER TABLE scrape_runs ADD COLUMN checkpoint TEXT")
+
         # Check if 'attachments' column exists in 'statutes'
         async with db.execute("PRAGMA table_info(statutes)") as cursor:
             cols = [row[1] for row in await cursor.fetchall()]
@@ -123,3 +130,4 @@ async def init_db() -> None:
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_rules_unique ON admin_rules(source_key, article_number, article_title)")
 
         await db.commit()
+

@@ -34,6 +34,7 @@ class BaseScraper(ABC):
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
+        self.resume_checkpoint: str | None = None
 
     @property
     def page(self) -> Page:

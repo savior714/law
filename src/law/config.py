@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from pydantic import BaseModel, Field
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -26,38 +27,47 @@ BUNDLE_PREFIX_MAP = {
     "precedents": "BUNDLE_PRECEDENT",
 }
 
+# ── Source Configuration Model ───────────────────────────────────────────
+class SourceConfig(BaseModel):
+    """Configuration for a single legal data source."""
+    name: str              # User-friendly name
+    url: str               # Target URL (direct access where possible)
+    scraper: str           # Scraper type key (e.g., "law_statute")
+    table: str             # Database table name
+    enabled: bool = True   # UI visibility
+
 # ── Source registry ────────────────────────────────────────────────────────
-SOURCES: dict[str, dict] = {
-    "police_investigation_rules": {
-        "name": "경찰수사규칙",
-        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsId=013976",
-        "scraper": "law_statute",
-        "table": "statutes",
-    },
-    "crime_investigation_rules": {
-        "name": "범죄수사규칙",
-        "url": "https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000272092",
-        "scraper": "law_admin_rule",
-        "table": "admin_rules",
-    },
-    "criminal_procedure_act": {
-        "name": "형사소송법",
-        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsId=001671",
-        "scraper": "law_statute",
-        "table": "statutes",
-    },
-    "investigation_standards": {
-        "name": "검사와 사법경찰관의 상호협력과 일반적 수사준칙에 관한 규정(수사준칙)",
-        "url": "https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=255305",
-        "scraper": "law_statute",
-        "table": "statutes",
-    },
-    "criminal_act": {
-        "name": "형법",
-        "url": "https://law.go.kr/LSW/lsInfoP.do?lsId=001692&ancYnChk=0#0000",
-        "scraper": "law_statute",
-        "table": "statutes",
-    },
+SOURCES: dict[str, SourceConfig] = {
+    "police_investigation_rules": SourceConfig(
+        name="경찰수사규칙",
+        url="https://www.law.go.kr/LSW/lsInfoP.do?lsId=013976",
+        scraper="law_statute",
+        table="statutes",
+    ),
+    "crime_investigation_rules": SourceConfig(
+        name="범죄수사규칙",
+        url="https://www.law.go.kr/LSW/admRulInfoP.do?admRulSeq=2100000272092",
+        scraper="law_admin_rule",
+        table="admin_rules",
+    ),
+    "criminal_procedure_act": SourceConfig(
+        name="형사소송법",
+        url="https://www.law.go.kr/LSW/lsInfoP.do?lsId=001671",
+        scraper="law_statute",
+        table="statutes",
+    ),
+    "investigation_standards": SourceConfig(
+        name="검사와 사법경찰관의 상호협력과 일반적 수사준칙에 관한 규정(수사준칙)",
+        url="https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=255305",
+        scraper="law_statute",
+        table="statutes",
+    ),
+    "criminal_act": SourceConfig(
+        name="형법",
+        url="https://law.go.kr/LSW/lsInfoP.do?lsId=001692&ancYnChk=0#0000",
+        scraper="law_statute",
+        table="statutes",
+    ),
 }
 
 # ── CSS Selectors: law.go.kr ──────────────────────────────────────────────

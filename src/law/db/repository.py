@@ -53,6 +53,33 @@ class Repository:
         )
         await self.db.commit()
 
+    async def update_checkpoint(self, run_id: int, checkpoint: str) -> None:
+        """Update the checkpoint for a running scrape task."""
+        await self.db.execute(
+            "UPDATE scrape_runs SET checkpoint=? WHERE id=?",
+            (checkpoint, run_id),
+        )
+        await self.db.commit()
+
+    async def get_last_checkpoint(self, source_key: str) -> str | None:
+        """Fetch the checkpoint from the last failed or incomplete run for a source."""
+        async with self.db.execute(
+            "SELECT checkpoint FROM scrape_runs "
+            "WHERE source_key=? AND status != 'completed' "
+            "ORDER BY id DESC LIMIT 1",
+            (source_key,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["checkpoint"] if row else None
+
+    async def get_run_checkpoint(self, run_id: int) -> str | None:
+        """Fetch checkpoint for a specific run."""
+        async with self.db.execute(
+            "SELECT checkpoint FROM scrape_runs WHERE id=?", (run_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row["checkpoint"] if row else None
+
     # ── Statutes ───────────────────────────────────────────────────────
 
     async def upsert_statute(self, article: StatuteArticle, source_url: str, run_id: int) -> bool:

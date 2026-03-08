@@ -14,44 +14,22 @@ from bs4 import BeautifulSoup
 
 from law.config import SELECTORS_LAW, SOURCES
 from law.models.schemas import StatuteArticle
-from law.scrapers.base import BaseScraper, SelectorNotFoundError
+from law.scrapers.law_go_kr_base import LawGoKrScraper
 from law.utils.text import clean_html_text
 
 logger = logging.getLogger(__name__)
 
 
-class StatuteScraper(BaseScraper):
+class StatuteScraper(LawGoKrScraper):
     """Scrapes statute articles from law.go.kr lsInfoP.do pages using structural extraction."""
 
     def __init__(self, source_key: str) -> None:
         super().__init__()
         src = SOURCES[source_key]
         self.name = source_key
-        self.source_url = src["url"]
-        self._law_name = src["name"]
+        self.source_url = src.url
+        self._law_name = src.name
         self._source_key = source_key
-
-    async def validate_page_loaded(self) -> bool:
-        body = SELECTORS_LAW["law_body"]
-        alt = SELECTORS_LAW["body_content"]
-        el = await self.page.query_selector(body) or await self.page.query_selector(alt) or await self.page.query_selector("#bodyId")
-        if el is None:
-            raise SelectorNotFoundError(f"{self.name}: neither {body} nor {alt} found")
-        return True
-
-    async def _wait_for_law_body(self, timeout: int = 30_000) -> None:
-        """Wait until main content has actual text content (AJAX loaded)."""
-        logger.info("%s: waiting for law body AJAX content...", self.name)
-        deadline = asyncio.get_event_loop().time() + (timeout / 1000)
-        while asyncio.get_event_loop().time() < deadline:
-            has_content = await self.page.evaluate("""() => {
-                const el = document.querySelector('#lsBdy') || document.querySelector('#bodyContent') || document.querySelector('#bodyId') || document.querySelector('.lawcon');
-                return el && el.innerText.trim().length > 100;
-            }""")
-            if has_content:
-                return
-            await asyncio.sleep(0.5)
-        logger.warning("%s: timeout waiting for content, proceeding anyway", self.name)
 
     async def scrape(self) -> AsyncGenerator[StatuteArticle, None]:
         await self.safe_navigate(self.source_url)
@@ -64,67 +42,28 @@ class StatuteScraper(BaseScraper):
         # Step 2: Extract Hierarchy from sidebar
         html = await self.get_page_content()
         soup = BeautifulSoup(html, "lxml")
-        hierarchy = self._extract_hierarchy(soup)
+        hierarchy = self._extract_hierarchy_map(soup, ["part", "chapter", "section", "subsection"])
 
-        # Step 3: Structural Article Extraction via Javascript
-        # This is the most accurate way as it respects the DOM boundaries.
-        logger.info("%s: performing structural article extraction...", self.name)
-        extracted_data = await self.page.evaluate("""() => {
-            const results = [];
-            const container = document.querySelector('#lsBdy') || document.querySelector('#bodyContent') || document.querySelector('#conScroll');
-            if (!container) return [];
-
-            // Identifies article blocks. law.go.kr usually wraps articles in specific divs or p tags.
-            // We search for elements starting with "제N조"
-            const allElements = Array.from(container.querySelectorAll('div, p'));
-            let currentArticle = null;
-            let currentAddendum = null;
-
-            for (const el of allElements) {
-                const txt = el.innerText.trim();
-                if (!txt) continue;
-
-                // Detect Addendum header
-                if (txt.includes('부 칙')) {
-                    const m = txt.match(/부\s*칙\s*[<＜]([^>＞]+)[>＞]/);
-                    currentAddendum = m ? m[1] : "기본";
-                    continue;
-                }
-
-                // Match Article Header: "제1조(목적)"
-                // We use a regex that matches the start of the text
-                const headerMatch = txt.match(/^(제\d+조(?:의\d+)?)\s*[\(（]([^)）]+)[\)）]/);
-                if (headerMatch) {
-                    if (currentArticle) results.push(currentArticle);
-                    
-                    currentArticle = {
-                        number: headerMatch[1],
-                        title: headerMatch[2],
-                        content: txt,
-                        is_addendum: !!currentAddendum,
-                        addendum_name: currentAddendum
-                    };
-                } else if (currentArticle) {
-                    // Append to current article content if it's not a new article header
-                    // But avoid adding the same text if it was fetched via parent/child overlap
-                    if (!currentArticle.content.includes(txt)) {
-                        currentArticle.content += "\\n" + txt;
-                    }
-                }
-            }
-            if (currentArticle) results.push(currentArticle);
-            return results;
-        }""")
-
-        if not extracted_data:
-            logger.warning("%s: structural extraction yielded 0 results, falling back to text-based parsing", self.name)
-            # Fallback to the previous regex-based logic if DOM structures differ
-            raw = soup.select_one('#bodyContent, #lsBdy').get_text("\n")
-            # ... (omitted for brevity, but we should keep a fallback)
-            # Actually, let's make the JS more robust instead of falling back.
+        # Step 3: Structural Article Extraction
+        extracted_data = await self._extract_structural_articles()
         
+        # Checkpoint: Resume if needed
+        last_index = -1
+        if self.resume_checkpoint:
+            try:
+                if self.resume_checkpoint == "completed":
+                    logger.info("%s: already completed in previous run, skipping", self.name)
+                    return
+                last_index = int(self.resume_checkpoint)
+                logger.info("%s: resuming from index %d", self.name, last_index)
+            except ValueError:
+                pass
+
         all_articles = []
         for i, item in enumerate(extracted_data):
+            if i <= last_index:
+                continue
+
             art_num = item["number"]
             title = item["title"]
             content = item["content"]
@@ -159,32 +98,3 @@ class StatuteScraper(BaseScraper):
 
         logger.info("%s: successfully extracted %d articles structurally", self.name, len(all_articles))
 
-    def _extract_hierarchy(self, soup: BeautifulSoup) -> dict[str, dict]:
-        """Build a mapping of article_number -> hierarchy context from the sidebar tree."""
-        hierarchy: dict[str, dict] = {}
-        current = {"part": None, "chapter": None, "section": None, "subsection": None}
-
-        left = soup.select_one(SELECTORS_LAW["left_tree"])
-        if not left:
-            return hierarchy
-
-        for item in left.select(SELECTORS_LAW["article_tree_item"]):
-            text = item.get_text(strip=True)
-            if re.match(r"제\d+편", text):
-                current["part"] = text
-                current["chapter"] = None
-                current["section"] = None
-                current["subsection"] = None
-            elif re.match(r"제\d+장", text):
-                current["chapter"] = text
-                current["section"] = None
-                current["subsection"] = None
-            elif re.match(r"제\d+절", text):
-                current["section"] = text
-                current["subsection"] = None
-            elif re.match(r"제\d+관", text):
-                current["subsection"] = text
-            elif m := re.match(r"(제\d+조(?:의\d+)?)", text):
-                hierarchy[m.group(1)] = dict(current)
-
-        return hierarchy

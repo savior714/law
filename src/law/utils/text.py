@@ -8,8 +8,8 @@ import re
 def normalize_whitespace(text: str) -> str:
     """Normalize line endings and collapse excessive blank lines."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    # Strip spaces from Each line to allow \n\n matching
-    text = "\n".join(line.strip() for line in text.split("\n"))
+    # Preserve leading indentation but strip trailing spaces
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -71,9 +71,11 @@ def clean_html_text(text: str) -> str:
                 flowed_lines[-1] = f"{prev_line} {line}"
             else:
                 # New structural block
-                marker = m.group(1)
+                marker = m.group(1).replace(" ", "")  # Tight match logic for indent check
                 indent = ""
-                if re.match(r"^\d+\.", marker):  # Item (호: 1., 2.)
+                if re.match(r"^[\u2460-\u2473]", marker):  # Paragraph (항: ①, ②)
+                    indent = "" # Paragraphs usually not indented in our flow
+                elif re.match(r"^\d+\.", marker):  # Item (호: 1., 2.)
                     indent = "  "
                 elif re.match(r"^[가-하]\.", marker):  # Point (목: 가., 나.)
                     indent = "    "
