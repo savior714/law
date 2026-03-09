@@ -313,7 +313,7 @@ class ScourtPrecedentScraper(BaseScraper):
         case_name = None
 
         m = re.search(
-            r"([^\s]+)\s+([\d.]+)\s+선고\s+([^\s]+)\s+판결(?:\s+\[?(.*?)\]?)?$",
+            r"([^\s]+)\s+([\d.]+)\s+선고\s+([^\s]+)\s+판결(?:\s+(.*))?$",
             list_text.strip()
         )
         if m:

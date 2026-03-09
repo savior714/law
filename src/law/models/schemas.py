@@ -61,17 +61,17 @@ class AdminRuleArticle(BaseModel):
 
 
 class Precedent(BaseModel):
-    """A court precedent (판례) from law.go.kr or scourt portal."""
+    """A court precedent or generic legal decision (판례, 결정례, 해석례, 재결례)."""
 
     source_key: str
-    case_number: str
+    case_number: str  # Case/Matter/Decision number
     case_name: str | None = None
-    court: str
+    court: str | None = None  # Court, Ministry, or Authority
     decision_date: date | None = None
-    case_type: str = "형사"
-    holding: str | None = None
-    summary: str | None = None
-    full_text: str | None = None
+    case_type: str | None = "형사"
+    holding: str | None = None   # 결정문 주문, 회신내용(요약) 등
+    summary: str | None = None   # 판결요지, 질의요지 등
+    full_text: str | None = None # 전문, 회신내용(상세), 재결내용 등
     referenced_statutes: list[str] = []
     referenced_cases: list[str] = []
 

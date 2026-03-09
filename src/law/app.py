@@ -17,7 +17,12 @@ from law.db.repository import Repository
 from law.db.schema import init_db
 from law.export.builder import build_dataset
 from law.scrapers.law_admin_rule import AdminRuleScraper
-from law.scrapers.law_precedent import LawPrecedentScraper
+from law.scrapers.law_decision_ext import (
+    AdminAppealScraper,
+    ConstitutionalScraper,
+    InterpretationScraper,
+    LawGoKrPrecedentScraper,
+)
 from law.scrapers.law_statute import StatuteScraper
 from law.scrapers.scourt_precedent import ScourtPrecedentScraper
 
@@ -26,7 +31,10 @@ logger = logging.getLogger(__name__)
 SCRAPER_MAP = {
     "law_statute": StatuteScraper,
     "law_admin_rule": AdminRuleScraper,
-    "law_precedent": LawPrecedentScraper,
+    "law_go_kr_precedent": LawGoKrPrecedentScraper,
+    "law_go_kr_constitutional": ConstitutionalScraper,
+    "law_go_kr_interpretation": InterpretationScraper,
+    "law_go_kr_admin_appeal": AdminAppealScraper,
     "scourt_precedent": ScourtPrecedentScraper,
 }
 
@@ -36,7 +44,7 @@ class LawScraperApp(App):
 
     TITLE = "Korean Legal Data Scraper"
     CSS = """
-    #source_list { height: 10; margin: 1 2; }
+    #source_list { height: auto; max-height: 15; margin: 1 2; }
     #action_bar { layout: horizontal; height: 3; margin: 0 2; }
     #action_bar Button { margin: 0 1; }
     #log { height: 1fr; margin: 1 2; border: solid green; }

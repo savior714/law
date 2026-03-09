@@ -16,7 +16,12 @@
 * **복귀 선택자 (Critical):**
   * 일반 법령: `#tabSms_1`, `#lsBdyView`
   * 행정규칙: `#bdyBtnKO`, `text='행정규칙본문'`
-* **안정성 보장:** 탭 전환 실패 시 원본 URL로 `safe_navigate`를 수행하여 세션을 복구한다. 브라우저가 예기치 않게 종료된 경우(`is_closed`) 즉시 루프를 중단하고 에러를 보고한다.
+* **안정성 보장 (Stale Element 방지):**
+  * 법제처 AJAX 리스트(판례, 해석례 등)에서 상세 페이지 이동 시, 리스트 페이지의 상태(페이지 번호, 검색 결과) 유실을 방지하기 위해 **반드시 새 탭(`context.new_page()`)을 생성하여 상세 정보를 수집**한 뒤 닫는다.
+  * 페이지 로딩 대기 시 `networkidle` 대신 **`domcontentloaded`**를 기본값으로 사용하여 불필요한 지연을 줄이고 안정성을 확보한다.
+* **AJAX 페이징 로직 (Critical):**
+  * 단순 CSS 선택자 클릭은 10페이지 그룹이 끝나는 시점에 루프백(1페이지로 회귀) 오류를 일으킬 수 있다.
+  * **JS 기반 제어:** `evaluate`를 통해 현재 활성화된 페이지(`li.on`)의 다음 형제 요소 유무를 확인하고, 그룹 이동이 필요할 시 "다음" 화살표 버튼(`img[alt*='다음']`)을 명확히 식별하여 클릭한다.
 * **직접 접근 원칙 (Stability):** 속도와 안정성을 위해 검색 결과 페이지를 통한 우회 대신, `lsiSeq` 또는 `lsId`가 포함된 **직접 조문 URL (`lsInfoP.do`)**을 SSOT로 관리한다.
 
 ## 3. 데이터 클리닝 및 노이즈 제거 (Noise Removal)
@@ -33,6 +38,9 @@
     * **호(1., 2.):** **2칸 공백** 들여쓰기
     * **목(가., 나.):** **4칸 공백** 들여쓰기
   * **정보 누락 방지:** 조문 제목과 본문 사이에 줄바꿈(`\n`)을 강제하여 계층 분리를 명확히 한다.
+  * **레코드 헤더(Header) 규격화:**
+    * **형식:** `[법령/규정명] 계층구조 > 조문번호 (조문제목)`
+    * **규칙:** 계층구조(편, 장, 절 등)가 존재하는 경우에만 ` > ` 구분자를 사용하여 연결하며, 계층이 없는 경우 `[법령/규정명] 조문번호` 형태로 직결하여 불필요한 기호를 제거한다.
 
 ## 4. 데이터 무결성 및 SSOT
 
@@ -181,6 +189,27 @@
 )
 `
 
-* **scraper 타입:** "scourt_precedent" → ScourtPrecedentScraper (BaseScraper 상속)
+* **Low-level Scraper:** `LawGoKrScraper` (law.go.kr), `ScourtPrecedentScraper` (scourt.go.kr)
 * **저장 테이블:** precedents (기존 law_go_kr_precedent와 동일 테이블, source_key로 구분)
 * **체크포인트 Resume:** 11조(CRITICAL_LOGIC.md)의 표준 체크포인트 메커니즘 적용
+
+## 13. 데이터 수집 확장 (Phase 5: Diversification)
+
+### 13-1. 신규 소스 관리 (law.go.kr 기반)
+
+* **원칙:** 신규 수집 대상은 모두 법제처(`law.go.kr`) 인프라를 사용하므로, `LawGoKrScraper` 베이스 클래스의 로직을 상속받아 구현한다.
+* **상세 엔드포인트:**
+    * **판례:** `precSc.do` (검색) / `precInfoP.do` (상세)
+    * **헌재결정례:** `detcSc.do` (검색) / `detcInfoP.do` (상세)
+    * **법제처 해석례:** `expcSc.do` (검색) / `expcInfoP.do` (상세)
+    * **행정심판재결례:** `allDeccSc.do` (검색) / `detcInfoP.do` 등
+* **데이터 격리 및 분류:**
+    * **Table:** `precedents` 테이블을 공용으로 사용하되, `source_key`를 통해 도메인을 물리적으로 구분한다.
+    * **Header Formatting:** 판례/헌재결정례는 기존 판례 규격(`[사건번호 / 날짜]`)을 따르며, 해석례/재결례는 `[안건번호 / 회신일자]` 형식을 사용한다.
+
+### 13-2. 수집 우선순위 및 로드맵
+
+1.  **Phase 5.1:** 헌재결정례 및 법제처 해석례 (법리적 중요도 높음)
+2.  **Phase 5.2:** 대법원/하급심 판례 (형사 분야 집중 수집)
+3.  **Phase 5.3:** 행정심판재결례 순으로 확장한다.
+* **상세 계획 참조:** [docs/COLLECTION_PLAN.md](file:///c:/develop/law/docs/COLLECTION_PLAN.md)

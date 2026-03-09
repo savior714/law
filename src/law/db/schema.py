@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import aiosqlite
 
 from law.config import DATA_DIR, DB_PATH
+
+logger = logging.getLogger(__name__)
 
 DDL = """
 -- Scraping run tracking
@@ -68,7 +71,7 @@ CREATE TABLE IF NOT EXISTS precedents (
     source_key      TEXT NOT NULL,
     case_number     TEXT NOT NULL,
     case_name       TEXT,
-    court           TEXT NOT NULL,
+    court           TEXT,
     decision_date   TEXT,
     case_type       TEXT DEFAULT '형사',
     holding         TEXT,
@@ -128,6 +131,39 @@ async def init_db() -> None:
         # Recreate unique indexes for admin_rules to include title
         await db.execute("DROP INDEX IF EXISTS idx_admin_rules_unique")
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_rules_unique ON admin_rules(source_key, article_number, article_title)")
+
+        # Migration: Remove NOT NULL from precedents.court if exists
+        async with db.execute("PRAGMA table_info(precedents)") as cursor:
+            columns = await cursor.fetchall()
+            court_col = next((c for c in columns if c[1] == "court"), None)
+            if court_col and court_col[3] == 1:  # 1 means NOT NULL
+                logger.info("Migrating 'precedents' table to remove NOT NULL from 'court'...")
+                await db.executescript("""
+                    BEGIN TRANSACTION;
+                    CREATE TABLE precedents_new (
+                        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source_key      TEXT NOT NULL,
+                        case_number     TEXT NOT NULL,
+                        case_name       TEXT,
+                        court           TEXT,
+                        decision_date   TEXT,
+                        case_type       TEXT DEFAULT '형사',
+                        holding         TEXT,
+                        summary         TEXT,
+                        full_text       TEXT,
+                        referenced_statutes TEXT,
+                        referenced_cases    TEXT,
+                        content_hash    TEXT NOT NULL,
+                        source_url      TEXT NOT NULL,
+                        scraped_at      TEXT NOT NULL,
+                        scrape_run_id   INTEGER REFERENCES scrape_runs(id)
+                    );
+                    INSERT INTO precedents_new SELECT * FROM precedents;
+                    DROP TABLE precedents;
+                    ALTER TABLE precedents_new RENAME TO precedents;
+                    CREATE UNIQUE INDEX idx_precedents_unique ON precedents(source_key, case_number);
+                    COMMIT;
+                """)
 
         await db.commit()
 

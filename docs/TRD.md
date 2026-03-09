@@ -77,7 +77,7 @@
     │                       │
     │                       ├── law_statute.py ──┐
     │                       ├── law_admin_rule.py│
-    │                       ├── law_precedent.py ├──► Playwright Browser
+    │                       ├── law_decision_ext.py ├──► Playwright Browser
     │                       └── scourt_precedent.py   (GUI 모드)
     │                              │
     │                              ▼
@@ -171,9 +171,10 @@ law.go.kr의 `admRulInfoP.do` 템플릿 사용.
 
 **출력**: 조(Article) 단위 `AdminRuleArticle` 레코드
 
-### 3.4 판례 스크래퍼: `law_precedent.py` (법령 판례검색)
+### 3.4 법령/판례/결정례 확장 스크래퍼: `law_decision_ext.py` (법제처)
 
-law.go.kr `precSc.do` 페이지 대상.
+law.go.kr의 `precSc.do`, `detcSc.do`, `expcSc.do`, `allDeccSc.do` 등을 통한 다각화 수집.
+`LawGoKrDecisionBaseScraper`를 상속받아 공통 AJAX 패턴 및 상세 페이지 추출 로직을 공유한다.
 
 **Playwright 시나리오:**
 

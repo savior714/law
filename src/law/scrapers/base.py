@@ -42,6 +42,18 @@ class BaseScraper(ABC):
             raise RuntimeError("Browser not initialised. Call init_browser() first.")
         return self._page
 
+    @property
+    def context(self) -> BrowserContext:
+        if self._context is None:
+            raise RuntimeError("Browser context not initialised. Call init_browser() first.")
+        return self._context
+
+    @property
+    def browser(self) -> Browser:
+        if self._browser is None:
+            raise RuntimeError("Browser not initialised. Call init_browser() first.")
+        return self._browser
+
     # ── Lifecycle ──────────────────────────────────────────────────────
 
     async def init_browser(self, headless: bool = HEADLESS) -> None:
@@ -68,8 +80,8 @@ class BaseScraper(ABC):
         """Navigate to *url* with retry logic and optional selector wait."""
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                # Use networkidle for more reliable legal page loading
-                await self.page.goto(url, wait_until="networkidle", timeout=60_000)
+                # Use domcontentloaded for faster/more reliable loading on law.go.kr
+                await self.page.goto(url, wait_until="domcontentloaded", timeout=60_000)
                 if wait_selector:
                     await self.page.wait_for_selector(wait_selector, timeout=DEFAULT_TIMEOUT_MS)
                 await asyncio.sleep(NAVIGATION_DELAY_SEC)

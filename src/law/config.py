@@ -74,6 +74,30 @@ SOURCES: dict[str, SourceConfig] = {
         scraper="scourt_precedent",
         table="precedents",
     ),
+    "law_go_kr_precedent": SourceConfig(
+        name="법제처 국가법령정보센터 판례",
+        url="https://www.law.go.kr/precSc.do?menuId=7&subMenuId=47&tabMenuId=213&query=",
+        scraper="law_go_kr_precedent",
+        table="precedents",
+    ),
+    "law_go_kr_constitutional": SourceConfig(
+        name="헌법재판소 결정례",
+        url="https://www.law.go.kr/detcSc.do?menuId=7&subMenuId=49&tabMenuId=225&query=",
+        scraper="law_go_kr_constitutional",
+        table="precedents",
+    ),
+    "law_go_kr_interpretation": SourceConfig(
+        name="법제처 해석례",
+        url="https://www.law.go.kr/expcSc.do?menuId=7&subMenuId=51&tabMenuId=237&query=",
+        scraper="law_go_kr_interpretation",
+        table="precedents",
+    ),
+    "law_go_kr_admin_appeal": SourceConfig(
+        name="행정심판 재결례",
+        url="https://www.law.go.kr/allDeccSc.do?menuId=7&subMenuId=53&tabMenuId=249&query=",
+        scraper="law_go_kr_admin_appeal",
+        table="precedents",
+    ),
 }
 
 # ── CSS Selectors: law.go.kr ──────────────────────────────────────────────

@@ -72,3 +72,37 @@
   2. \src/law/scrapers/scourt_precedent.py\: 상세 본문 추출 시 \clean_html_text\를 적용하여 문단 병합(Flowing) 수행.
   3. \scripts/reclean_data.py\: DB에 이미 저장된 224건의 판례 데이터를 소급하여 정규화하는 복구 스크립트 실행 (210건 수정 완료).
 - **결과**: \data/export/BUNDLE_PRECEDENT_01.txt\ 확인 결과, 문단이 적절히 병합되어 NotebookLM 등 AI 도구 활용에 최적화된 형태로 개선됨.
+### 2026-03-09
+- **문제**: BUNDLE_PRECEDENT_01.txt 수출 파일의 헤더에서 날짜 뒤의 대괄호(']')가 누락되는 현상 발견 (공보 인용구가 있는 경우).
+- **원인**:
+  1. scourt_precedent.py 스크래퍼의 정규식이 사건명 앞뒤의 대괄호를 과도하게 제거하여 공보 인용구의 닫는 대괄호 파손.
+  2. ormatter.py에서 공보 인용구와 날짜를 별개로 취급하여 형식이 일관되지 않음.
+- **해결**:
+  1. src/law/scrapers/scourt_precedent.py: 정규식 수정으로 대괄호 보존.
+  2. src/law/export/formatter.py: ormat_precedent 함수 개선. 공보 인용구가 감지되면 '[인용구 / 날짜]' 형식으로 자동 보정 및 결합.
+- **검증**: eexport_data.py 실행 후 2024도3387 건 등에 대해 [공2026상,358 / 2025-12-24] 형식으로 닫힌 대괄호 확인.
+
+## 2026-03-09 (계속)
+
+### 데이터 수출 포맷 통일
+- **법령/행정규칙 헤더 형식 통일:**
+  - src/law/export/formatter.py의 format_statute 수정.
+  - 계층 구조(Hierarchy)가 없는 경우 [법령명] > 제N조에서 > 기호를 제거하여 [법령명] 제N조 형식으로 출력되도록 변경.
+- **SSOT 반영:**
+  - docs/CRITICAL_LOGIC.md의 섹션 3.3.4에 '레코드 헤더 규격화' 규칙 추가 및 명문화.
+
+## 2026-03-09 11:55 (Scraper Pagination Fix)
+- **버그 수정**: 법제처 판례 등 수집 시 94건(10페이지)에서 더 이상 다음 페이지를 인식하지 못하고 스크래핑이 조기 종료되는 현상 해결.
+- **원인 분석**: 기존의 CSS 선택자(`.paging ol li:not(.on) a`)가 11페이지 그룹으로 넘어가는 "다음" 버튼 대신 첫 번째 페이지 버튼을 오인식하여 루프백 및 중단 발생.
+- **조치 사항**: `law_go_kr_decision_base.py`의 `_go_next_page` 메서드를 JS(`evaluate`) 기반으로 전면 개편. 현재 페이지(`li.on`)의 자매 요소 여부를 명확히 판단하고, 페이지 그룹이 끝났을 시 "다음" 화살표 버튼(`img[alt*='다음']`)을 클릭하도록 구조 개선.
+
+## 2026-03-09 11:45 (Database Schema Migration)
+- **버그 수정**: 신규 소스(해석례, 재결례 등) 수집 시 `court` 필드가 없는 경우 발생하던 `NOT NULL constraint failed: precedents.court` 오류 해결.
+- **스키마 변경**: `precedents` 테이블의 `court` 컬럼에서 `NOT NULL` 제약 조건을 제거하여 유연한 데이터 수집 허용.
+- **자동 마이그레이션**: `init_db` 로직에 `PRAGMA table_info`를 활용한 컬럼 상태 검사 및 임시 테이블 기반의 자동 스키마 전환 로직 구현.
+
+## 2026-03-09 데이터 수집 확장 계획 수립 (Phase 5)
+
+- **작업**: 사용자 요청에 따른 신규 데이터 소스 4종(판례, 헌재결정례, 해석례, 재결례) 확장 계획 수립.
+- **문서**: docs/COLLECTION_PLAN.md 생성 및 SSOT(PRD, CRITICAL_LOGIC) 반영 완료.
+- **내용**: LawGoKrScraper 베이스를 활용한 도메인 다각화 로드맵 정의.
