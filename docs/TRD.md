@@ -63,7 +63,10 @@
 <truncated 22 lines>
 │           └── text.py      # 한글 텍스트 흐름(Flow) 및 들여쓰기 최적화
 ├── data/
-│   ├── law.db               # UPSERT (source_key, article_number, title)
+│   ├── law_meta.db          # 수집 상태 및 체크포인트 (Meta Shard)
+│   ├── law_statutes.db      # 법령 및 행정규칙 (Statute Shard)
+│   ├── law_precedents.db    # 형사 판례 (Precedent Shard)
+│   ├── law_decisions.db     # 결정례/해석례 (Decision Shard)
 │   └── export/              # BUNDLE_MAX_BYTES 단위 분할 출력
 └── tests/                   # pytest 기반 공식 테스트 코드
 ```

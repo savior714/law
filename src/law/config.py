@@ -8,8 +8,22 @@ from pydantic import BaseModel, Field
 # ── Paths ──────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-DB_PATH = DATA_DIR / "law.db"
 EXPORT_DIR = DATA_DIR / "export"
+
+# Sharded Database Paths
+DB_PATHS = {
+    "meta": DATA_DIR / "law_meta.db",
+    "statutes": DATA_DIR / "law_statutes.db",
+    "precedents": DATA_DIR / "law_precedents.db",
+    "decisions": DATA_DIR / "law_decisions.db",
+}
+
+# Legacy path for migration/fallback
+DB_PATH = DATA_DIR / "law.db"
+
+# Vector DB (RAG)
+CHROMA_PATH = DATA_DIR / "chroma"
+EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 # ── Scraping defaults ──────────────────────────────────────────────────────
 DEFAULT_TIMEOUT_MS = 30_000
@@ -34,6 +48,7 @@ class SourceConfig(BaseModel):
     url: str               # Target URL (direct access where possible)
     scraper: str           # Scraper type key (e.g., "law_statute")
     table: str             # Database table name
+    db_key: str = "statutes" # Which sharded DB to use (meta, statutes, precedents, decisions)
     enabled: bool = True   # UI visibility
 
 # ── Source registry ────────────────────────────────────────────────────────
@@ -73,30 +88,35 @@ SOURCES: dict[str, SourceConfig] = {
         url="https://portal.scourt.go.kr/pgp/index.on?m=PGP1011M01&l=N&c=900",
         scraper="scourt_precedent",
         table="precedents",
+        db_key="precedents",
     ),
     "law_go_kr_precedent": SourceConfig(
         name="법제처 국가법령정보센터 판례",
         url="https://www.law.go.kr/precSc.do?menuId=7&subMenuId=47&tabMenuId=213&query=",
         scraper="law_go_kr_precedent",
         table="precedents",
+        db_key="precedents",
     ),
     "law_go_kr_constitutional": SourceConfig(
         name="헌법재판소 결정례",
         url="https://www.law.go.kr/detcSc.do?menuId=7&subMenuId=49&tabMenuId=225&query=",
         scraper="law_go_kr_constitutional",
         table="precedents",
+        db_key="decisions",
     ),
     "law_go_kr_interpretation": SourceConfig(
         name="법제처 해석례",
         url="https://www.law.go.kr/expcSc.do?menuId=7&subMenuId=51&tabMenuId=237&query=",
         scraper="law_go_kr_interpretation",
         table="precedents",
+        db_key="decisions",
     ),
     "law_go_kr_admin_appeal": SourceConfig(
         name="행정심판 재결례",
         url="https://www.law.go.kr/allDeccSc.do?menuId=7&subMenuId=53&tabMenuId=249&query=",
         scraper="law_go_kr_admin_appeal",
         table="precedents",
+        db_key="decisions",
     ),
 }
 

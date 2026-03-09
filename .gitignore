@@ -6,7 +6,7 @@ dist/
 .venv/
 
 # Data (generated)
-data/law.db
+data/*.db
 data/export/
 
 # IDE

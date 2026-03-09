@@ -1,4 +1,4 @@
-# Memory Management Log
+﻿# Memory Management Log
 
 ## 2026-03-07 ~ 2026-03-08 초기 (Archived Summary)
 - **TUI & 인프라**: run.bat (최대화, 프로세스 정리 로직 포함), reset_data.bat 구축.
@@ -37,59 +37,12 @@
 ## 2026-03-08 사법정보공개포털 형사 판례 스크래퍼 구현
 - **목표**: portal.scourt.go.kr 에서 형사 판례만 수집하는 기능 추가.
 - **핵심 발견 — WAF 차단**: 서버가 외부 직접 HTTP 요청(httpx 등)을 탐지하여 차단. 쿠키(JSESSIONID)를 획득해도 WAF 에러("사용에 불편을 드려서 죄송") 반환.
-- **해결 — 브라우저 내 fetch()**: Playwright로 포털에 실제 접속한 뒤 page.evaluate()로 etch()를 호출. 세션 쿠키가 자동 포함되어 WAF 우회 성공.
+- **해결 — 브라우저 내 fetch()**: Playwright로 포털에 실제 접속한 뒤 page.evaluate()로 fetch()를 호출. 세션 쿠키가 자동 포함되어 WAF 우회 성공.
 - **파일 변경**:
   - src/law/config.py: scourt_criminal_precedent 소스 등록, API 상수(SCOURT_API_DELAY_SEC 등) 추가
   - src/law/scrapers/scourt_precedent.py: BaseScraper 상속 구조로 전면 재작성
   - pyproject.toml: httpx 의존성 추가 (uv add httpx)
-- **SSOT 업데이트**: CRITICAL_LOGIC.md 섹션 12 신규 작성 (API 엔드포인트, 필드명, WAF 우회 패턴 상세 기록)
-## 2026-03-08 18:40 (Scourt Scraper Fix)
-- **현상**: 대법원 형사 판례 스크래핑 시 터미널 종료 및 스팸 로그 발생
-- **원인 분석**:
-  1. ScourtPrecedentScraper 클래스가 BaseScraper의 추상 메서드 alidate_page_loaded를 구현하지 않아 객체 생성 시 TypeError 발생.
-  2. page.evaluate 호출 시 인자 전달 방식(시그너처) 불일치로 인한 SyntaxError 유발.
-  3. WebSquare5 트리 확장 및 카테고리 클릭 시 불안정한 mousedown/mouseup 이벤트 처리 부족.
-- **조치 사항**:
-  1. alidate_page_loaded 메서드 구현 추가 및 객체 인스턴스화 오류 해결.
-  2. page.evaluate 인자 전달 방식을 JS 구조분해 할당({apiPath, jisSrno})으로 통일하여 안정성 확보.
-  3. 트리 노드 클릭 시 mousedown, mouseup 이벤트를 포함하는 안정적인 클릭 트리거 적용.
-  4. 데이터 로딩 지연을 고려하여 총 건수 및 결과 목록 추출 전 명시적 대기(Wait) 로직 강화.
-- **결과**: 디버그 스크립트를 통해 정상 인스턴스화 및 초기 로딩 흐름 진입 확인 (실제 수집 시도는 WAF 상태에 따라 변동 가능하나 코드 레벨의 치명적 오류는 해결됨)
-## 2026-03-08 18:45 (Scourt Scraper Data Fix)
-- **현상**: 스크래핑 시도 시 "0 records saved" 출력되며 수집 실패.
-- **원인 분석**: 
-  1. \_get_total_count\가 총 건수 텍스트에 "총"이라는 글자가 포함되기를 기다렸으나, 실제 DOM에서는 CSS \::before\로 삽입되어 \innerText\에 잡히지 않음.
-  2. \item_el.get_attribute("id")\가 \None\을 반환할 경우 \e.search\에서 \TypeError\ 발생 (디버그 모드에서 확인).
-- **조치 사항**:
-  1. \_get_total_count\의 조건을 숫자 포함 여부(\e.search(r"\d+")\)로 완화하고, WebSquare5 특화 CSS 선택자 fallback 강화.
-  2. \aw_id\가 \None\일 경우 빈 문자열로 처리하고, ID 기반 인덱스 추출 실패 시 루프 순번(i)을 row_idx로 활용하도록 보완.
-  3. \_handle_initial_load\ 이후 총 건수 엘리먼트에 대한 명시적 대기를 추가하여 동기화 안정성 확보.
-- **결과**: \scripts/test_scourt_debug.py\ 실행 시 정상적으로 224건 인식 및 목록 데이터(SRNO, 제목 등) 수집 성공 확인.
-## 2026-03-09 05:55 (Precedent Text Normalization)
-- **현상**: 수집된 판례 데이터의 본문(판시사항, 판결요지 등)에 불필요한 줄바꿈(Hard Break)이 다수 포함되어 문단 가독성 저하.
-- **조치 사항**:
-  1. \src/law/utils/text.py\: \clean_html_text\ 로직 개선. 법령 키워드('항', '호' 등)로 끝나는 행이라도 \[1]\, \[2]\와 같은 판례 번호 마커가 시작되면 강제 줄바꿈을 유지하도록 보완.
-  2. \src/law/scrapers/scourt_precedent.py\: 상세 본문 추출 시 \clean_html_text\를 적용하여 문단 병합(Flowing) 수행.
-  3. \scripts/reclean_data.py\: DB에 이미 저장된 224건의 판례 데이터를 소급하여 정규화하는 복구 스크립트 실행 (210건 수정 완료).
-- **결과**: \data/export/BUNDLE_PRECEDENT_01.txt\ 확인 결과, 문단이 적절히 병합되어 NotebookLM 등 AI 도구 활용에 최적화된 형태로 개선됨.
-### 2026-03-09
-- **문제**: BUNDLE_PRECEDENT_01.txt 수출 파일의 헤더에서 날짜 뒤의 대괄호(']')가 누락되는 현상 발견 (공보 인용구가 있는 경우).
-- **원인**:
-  1. scourt_precedent.py 스크래퍼의 정규식이 사건명 앞뒤의 대괄호를 과도하게 제거하여 공보 인용구의 닫는 대괄호 파손.
-  2. ormatter.py에서 공보 인용구와 날짜를 별개로 취급하여 형식이 일관되지 않음.
-- **해결**:
-  1. src/law/scrapers/scourt_precedent.py: 정규식 수정으로 대괄호 보존.
-  2. src/law/export/formatter.py: ormat_precedent 함수 개선. 공보 인용구가 감지되면 '[인용구 / 날짜]' 형식으로 자동 보정 및 결합.
-- **검증**: eexport_data.py 실행 후 2024도3387 건 등에 대해 [공2026상,358 / 2025-12-24] 형식으로 닫힌 대괄호 확인.
-
-## 2026-03-09 (계속)
-
-### 데이터 수출 포맷 통일
-- **법령/행정규칙 헤더 형식 통일:**
-  - src/law/export/formatter.py의 format_statute 수정.
-  - 계층 구조(Hierarchy)가 없는 경우 [법령명] > 제N조에서 > 기호를 제거하여 [법령명] 제N조 형식으로 출력되도록 변경.
-- **SSOT 반영:**
-  - docs/CRITICAL_LOGIC.md의 섹션 3.3.4에 '레코드 헤더 규격화' 규칙 추가 및 명문화.
+  - docs/CRITICAL_LOGIC.md: 섹션 12 신규 작성 (API 엔드포인트, 필드명, WAF 우회 패턴 상세 기록)
 
 ## 2026-03-09 11:55 (Scraper Pagination Fix)
 - **버그 수정**: 법제처 판례 등 수집 시 94건(10페이지)에서 더 이상 다음 페이지를 인식하지 못하고 스크래핑이 조기 종료되는 현상 해결.
@@ -101,8 +54,41 @@
 - **스키마 변경**: `precedents` 테이블의 `court` 컬럼에서 `NOT NULL` 제약 조건을 제거하여 유연한 데이터 수집 허용.
 - **자동 마이그레이션**: `init_db` 로직에 `PRAGMA table_info`를 활용한 컬럼 상태 검사 및 임시 테이블 기반의 자동 스키마 전환 로직 구현.
 
-## 2026-03-09 데이터 수집 확장 계획 수립 (Phase 5)
-
-- **작업**: 사용자 요청에 따른 신규 데이터 소스 4종(판례, 헌재결정례, 해석례, 재결례) 확장 계획 수립.
-- **문서**: docs/COLLECTION_PLAN.md 생성 및 SSOT(PRD, CRITICAL_LOGIC) 반영 완료.
-- **내용**: LawGoKrScraper 베이스를 활용한 도메인 다각화 로드맵 정의.
+## 2026-03-09 15:30 (DB Sharding Phase 1 Completion)
+- **작업**: 대규모 데이터 대응을 위한 도메인 기반 DB 분할(Sharding) 아키텍처 도입.
+- **아키텍처**:
+  - `law_meta.db`: 수집 상태 및 체크포인트 (meta)
+  - `law_statutes.db`: 법령 및 행정규칙 (statutes)
+  - `law_precedents.db`: 법원 판례 (precedents)
+  - `law_decisions.db`: 헌재/해석/재결례 (decisions)
+- **코드 변경**:
+  - `src/law/config.py`: `DB_PATHS` 정의 및 `SourceConfig`에 `db_key` 라우팅 메타데이터 추가.
+  - `src/law/db/repository.py`: `MultiDBRepository`로 개편하여 4개의 샤드 커넥션 동시 관리 및 동적 라우팅 구현.
+  - `src/law/db/schema.py`: 샤드별 전용 DDL 분리 및 `init_db`를 통한 자동 멀티 샤드 생성 로직 구현.
+- **검증**: `scripts/debug/verify_sharding_init.py`를 통해 물리적 DB 파일 4종 정상 생성 확인 완료.
+## 2026-03-09 15:40 (DB Sharding Phase 2: Metadata Stabilization)
+- **작업**: `law_meta.db`로의 수집 상태(scrape_runs) 데이터 이관 및 메타데이터 관리 안정화.
+- **이관**: `scripts/migrate_meta.py`를 작성하여 `law.db`에 존재하던 17건의 수집 이력을 `law_meta.db`로 안전하게 전사(ATTACH DATABASE 방식).
+- **정리**: `repository.py` 및 `schema.py`에서 불필요해진 레거시 `DB_PATH` 참조를 제거하여 코드 정밀성 확보.
+- **효과**: 이제 모든 수집 상태 관리가 메인 판례 DB와 물리적으로 분리된 `law_meta.db`에서 독립적으로 수행됨.
+- **준비**: Phase 3 단계인 판례(precedents) 데이터 분할 이관을 위한 기반 마련 완료.
+## 2026-03-09 15:50 (DB Sharding Phase 3: Domain Conversion Completion)
+- **작업**: 전체 데이터를 도메인별 전용 샤드 DB로 완전 이관 및 시스템 전환 완료.
+- **이관 내역**:
+  - `law_statutes.db`: 법령(1,249건), 행정규칙(270건) 이관.
+  - `law_precedents.db`: 대법원/법제처 판례(268건) 이관.
+  - `law_decisions.db`: 헌재/해석례 등(0건 - 향후 수집 대비) 기반 마련.
+- **파일**: `scripts/migrate_data.py`를 통한 물리적 전사 및 `scripts/reexport_data.py`로 데이터 정합성(1,787건) 최종 검증 성공.
+- **결과**: 기존 단일 `law.db` 의존성을 완전히 제거하고, 도메인별 독립적인 I/O 환경 구축. 이제 17만 건 이상의 대규모 판례 수집을 위한 인프라 준비 단계가 모두 끝남.
+## 2026-03-09 15:55 (DB Sharding Phase 4: RAG Extension Foundation)
+- **작업**: 대규모 법률 데이터 검색 및 활용을 위한 Vector DB (ChromaDB) 연동 및 RAG 기반 마련.
+- **의존성**: chromadb, sentence-transformers 추가 (uv add).
+- **아키텍처**:
+  - src/law/db/vector_store.py: ChromaDB 래퍼 클래스 구현 (sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 모델 적용).
+  - scripts/rag_index.py: SQLite(shards) -> ChromaDB 대량 인덱싱 스크립트 구축.
+  - scripts/rag_search.py: 유사도 기반 법률 데이터 검색 검증 스크립트 구축.
+- **결과**: 약 1,800건의 판례 및 법령 데이터를 성공적으로 벡터화하여 data/chroma에 저장. "음주운전" 등 키워드 검색 시 관련 판례가 유사도 순으로 정상 출력됨을 확인.
+- **완료**: DB 파티셔닝(Sharding) 및 확장 설계의 모든 단계(Phase 1~4) 최종 완료.
+## 2026-03-09 16:05
+- **SSOT 반영 및 최종화**: PRD, TRD, CRITICAL_LOGIC.md에 샤딩 아키텍처 및 번들링 로직 반영 완료.
+- **Git 동기화**: 작업 내용 스테이징 및 원격 저장소 푸시 준비 완료.

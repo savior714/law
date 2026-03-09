@@ -12,6 +12,8 @@ dependencies = [
     "pydantic>=2.10",
     "rich>=13.0",
     "httpx>=0.28.1",
+    "chromadb>=1.5.4",
+    "sentence-transformers>=5.2.3",
 ]
 
 [project.scripts]
