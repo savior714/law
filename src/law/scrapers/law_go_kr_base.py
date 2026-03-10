@@ -7,7 +7,7 @@ import logging
 import re
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TypedDict, Optional, cast, Union
 
 from bs4 import BeautifulSoup
 
@@ -16,6 +16,13 @@ from law.scrapers.base import BaseScraper, SelectorNotFoundError
 
 logger = logging.getLogger(__name__)
 
+
+class ArticleExtractionResult(TypedDict):
+    number: str
+    title: str
+    content: str
+    is_addendum: bool
+    addendum_name: Optional[str]
 
 class LawGoKrScraper(BaseScraper):
     """Common logic for law.go.kr statutory/administrative rule scrapers."""
@@ -49,7 +56,7 @@ class LawGoKrScraper(BaseScraper):
             await asyncio.sleep(0.5)
         logger.warning("%s: timeout waiting for content, proceeding anyway", self.name)
 
-    async def _extract_structural_articles(self) -> list[dict[str, Any]]:
+    async def _extract_structural_articles(self) -> list[ArticleExtractionResult]:
         """Structural Article Extraction via Javascript.
         
         Identifies article blocks, handles addenda (부칙), and merges fragmented text.
@@ -100,7 +107,7 @@ class LawGoKrScraper(BaseScraper):
             return results;
         }""")
 
-    def _extract_hierarchy_map(self, soup: BeautifulSoup, levels: list[str]) -> dict[str, dict]:
+    def _extract_hierarchy_map(self, soup: BeautifulSoup, levels: list[str]) -> dict[str, dict[str, Union[str, None]]]:
         """Common hierarchy extraction logic for sidebar tree.
         
         levels: e.g. ["part", "chapter", "section", "subsection"]

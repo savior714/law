@@ -23,3 +23,9 @@ Thumbs.db
 
 # Logs
 logs/
+
+# Temporary / Debug
+*.png
+*.pickle
+*.log
+data/chroma/

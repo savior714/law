@@ -35,7 +35,7 @@ def clean_html_text(text: str) -> str:
     # - Addendum marker: [부칙]
     struct_marker = re.compile(
         r'^('
-        r'[\u2460-\u2473]|'                  # ① to ⑳
+        r'[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]|'  # ① to ㊿ (1-50)
         r'\d+\.\s*|'                         # 1., 2.
         r'[가-하]\.\s*|'                     # 가., 나.
         r'[*•·-]\s+|'                        # Bullets (with space)
@@ -72,7 +72,7 @@ def clean_html_text(text: str) -> str:
                 # New structural block
                 marker = m.group(1).replace(" ", "")  # Tight match logic for indent check
                 indent = ""
-                if re.match(r"^[\u2460-\u2473]", marker):  # Paragraph (항: ①, ②)
+                if re.match(r"^[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]", marker):  # Paragraph (항: ①...㊿)
                     indent = "" # Paragraphs usually not indented in our flow
                 elif re.match(r"^\d+\.", marker):  # Item (호: 1., 2.)
                     indent = "  "

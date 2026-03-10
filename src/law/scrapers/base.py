@@ -6,12 +6,14 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TypeVar, Union, TypeAlias, cast
 
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
-from law.config import DEFAULT_TIMEOUT_MS, HEADLESS, MAX_RETRIES, NAVIGATION_DELAY_SEC
-from law.models.schemas import Attachment
+from law.config import DEFAULT_TIMEOUT_MS, HEADLESS, MAX_RETRIES, NAVIGATION_DELAY_SEC, FILTER_KEYWORDS
+from law.models.schemas import AdminRuleArticle, Attachment, Precedent, StatuteArticle
+
+ScrapedItem: TypeAlias = Union[StatuteArticle, AdminRuleArticle, Precedent]
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class BaseScraper(ABC):
     source_url: str = ""
 
     def __init__(self) -> None:
-        self._playwright: Any = None
+        self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
@@ -73,6 +75,12 @@ class BaseScraper(ABC):
             await self._browser.close()
         if self._playwright:
             await self._playwright.stop()
+
+    def is_relevant(self, text: str | None) -> bool:
+        """Check if the text contains any of the target keywords."""
+        if not text:
+            return False
+        return any(kw in text for kw in FILTER_KEYWORDS)
 
     # ── Navigation helpers ─────────────────────────────────────────────
 
@@ -205,7 +213,7 @@ class BaseScraper(ABC):
     # ── Abstract interface ─────────────────────────────────────────────
 
     @abstractmethod
-    async def scrape(self) -> AsyncGenerator[Any, None]:
+    async def scrape(self) -> AsyncGenerator[ScrapedItem, None]:
         """Yield validated Pydantic model instances for each scraped record."""
         yield  # pragma: no cover
 

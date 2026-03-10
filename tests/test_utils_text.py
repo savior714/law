@@ -74,3 +74,19 @@ def test_clean_html_text_special_markers():
     assert "[부칙]" in cleaned
     assert "※ 참고사항" in cleaned
     assert len(cleaned.split("\n")) == 3
+
+def test_clean_html_text_extended_circled_numbers():
+    # 21, 35, 36, 50
+    text = """
+    ㉑ 제21항입니다.
+    ㉟ 제35항입니다.
+    ㊱ 제36항입니다.
+    ㊿ 제50항입니다.
+    """
+    cleaned = clean_html_text(text)
+    lines = cleaned.split("\n")
+    assert "㉑ 제21항입니다." in lines[0]
+    assert "㉟ 제35항입니다." in lines[1]
+    assert "㊱ 제36항입니다." in lines[2]
+    assert "㊿ 제50항입니다." in lines[3]
+    assert len(lines) == 4

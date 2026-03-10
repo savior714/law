@@ -25,6 +25,14 @@ DB_PATH = DATA_DIR / "law.db"
 CHROMA_PATH = DATA_DIR / "chroma"
 EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
+# ── RAG Quality Filters ────────────────────────────────────────────────────
+# 수사/형사 도메인 밀도를 높이기 위한 핵심 키워드
+FILTER_KEYWORDS = [
+    "형사", "수사", "경찰", "고소", "고발", "피의자", "피고인", "재판", 
+    "증거", "구속", "공판", "영장", "마약", "음주", "폭행", "사기", "절도",
+    "강도", "살인", "성폭력", "압수", "수색", "체포", "검찰", "기소", "불기소"
+]
+
 # ── Scraping defaults ──────────────────────────────────────────────────────
 DEFAULT_TIMEOUT_MS = 30_000
 NAVIGATION_DELAY_SEC = 1.0

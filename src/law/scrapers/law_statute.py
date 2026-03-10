@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 from law.config import SELECTORS_LAW, SOURCES
 from law.models.schemas import StatuteArticle
+from law.scrapers.base import ScrapedItem
 from law.scrapers.law_go_kr_base import LawGoKrScraper
 from law.utils.text import clean_html_text
 
@@ -31,7 +32,7 @@ class StatuteScraper(LawGoKrScraper):
         self._law_name = src.name
         self._source_key = source_key
 
-    async def scrape(self) -> AsyncGenerator[StatuteArticle, None]:
+    async def scrape(self) -> AsyncGenerator[ScrapedItem, None]:
         await self.safe_navigate(self.source_url)
         await self._wait_for_law_body()
         await self.validate_page_loaded()

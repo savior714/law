@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 from law.config import NAVIGATION_DELAY_SEC, SOURCES
 from law.models.schemas import Precedent
-from law.scrapers.base import BaseScraper, SelectorNotFoundError
+from law.scrapers.base import BaseScraper, ScrapedItem, SelectorNotFoundError
 from law.utils.text import clean_html_text
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class LawGoKrDecisionBaseScraper(BaseScraper):
         await asyncio.sleep(3)
         # Subclasses can add specific search keywords (e.g. '형사')
 
-    async def scrape(self) -> AsyncGenerator[Precedent, None]:
+    async def scrape(self) -> AsyncGenerator[ScrapedItem, None]:
         await self._setup_search()
         logger.info("%s: search complete, starting extraction", self.name)
 
@@ -78,10 +78,16 @@ class LawGoKrDecisionBaseScraper(BaseScraper):
                 detail_url = self._detail_base_url.format(seq=seq)
                 decision = await self._scrape_detail(detail_url)
                 if decision:
-                    yield decision
-                    scraped += 1
-                    if scraped % 20 == 0:
-                        logger.info("%s: scraped %d (total idx: %d)", self.name, scraped, current_idx)
+                    # RAG 품질 향상을 위해 관련 키워드가 포함된 경우만 수집
+                    # (사건명, 판시사항, 판결요지, 전문 중 하나라도 포함되면 수집)
+                    content_to_check = f"{decision.case_name or ''} {decision.holding or ''} {decision.summary or ''} {decision.full_text or ''}"
+                    if self.is_relevant(content_to_check):
+                        yield decision
+                        scraped += 1
+                        if scraped % 20 == 0:
+                            logger.info("%s: scraped %d (total idx: %d)", self.name, scraped, current_idx)
+                    else:
+                        logger.debug("%s: skip irrelevant case: %s", self.name, decision.case_number)
 
                 current_idx += 1
 

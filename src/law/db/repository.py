@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Literal, TypedDict, cast, Sequence
 
 import aiosqlite
 
@@ -11,19 +12,33 @@ from law.config import DB_PATHS, SOURCES
 from law.models.schemas import AdminRuleArticle, Precedent, StatuteArticle
 from law.utils.integrity import content_hash
 
+# --- Type Definitions ---
+ShardKey = Literal["meta", "statutes", "precedents", "decisions"]
+TableName = Literal["statutes", "admin_rules", "precedents", "scrape_runs"]
+
+class ScrapeRunRecord(TypedDict):
+    id: int
+    source_key: str
+    started_at: str
+    finished_at: str | None
+    status: Literal["running", "completed", "failed"]
+    total_records: int
+    error_message: str | None
+    checkpoint: str | None
 
 class Repository:
     """Async repository wrapping sharded SQLite operations."""
 
     def __init__(self) -> None:
-        self._dbs: dict[str, aiosqlite.Connection] = {}
+        self._dbs: dict[ShardKey, aiosqlite.Connection] = {}
 
     async def connect(self) -> None:
         """Connect to all sharded databases."""
         for key, path in DB_PATHS.items():
+            shard_key = cast(ShardKey, key)
             db = await aiosqlite.connect(path)
             db.row_factory = aiosqlite.Row
-            self._dbs[key] = db
+            self._dbs[shard_key] = db
 
     async def close(self) -> None:
         """Close all connections."""
@@ -31,16 +46,16 @@ class Repository:
             await db.close()
         self._dbs.clear()
 
-    def get_db(self, db_key: str) -> aiosqlite.Connection:
+    def get_db(self, db_key: ShardKey) -> aiosqlite.Connection:
         """Retrieve connection for a specific shard."""
         if db_key not in self._dbs:
             raise RuntimeError(f"Database shard '{db_key}' not connected or invalid.")
         return self._dbs[db_key]
 
-    def route_source(self, source_key: str) -> str:
+    def route_source(self, source_key: str) -> ShardKey:
         """Find the correct db_key for a given source."""
         if source_key in SOURCES:
-            return SOURCES[source_key].db_key
+            return cast(ShardKey, SOURCES[source_key].db_key)
         return "statutes"  # default fallback
 
     # ── Scrape runs ────────────────────────────────────────────────────
@@ -53,11 +68,13 @@ class Repository:
             (source_key, now),
         )
         await db.commit()
-        return cursor.lastrowid  # type: ignore[return-value]
+        if cursor.lastrowid is None:
+            raise RuntimeError("Failed to retrieve lastrowid after INSERT into scrape_runs.")
+        return cursor.lastrowid
 
     async def finish_run(self, run_id: int, *, total: int, error: str | None = None) -> None:
         now = datetime.now(timezone.utc).isoformat()
-        status = "failed" if error else "completed"
+        status: Literal["completed", "failed"] = "failed" if error else "completed"
         db = self.get_db("meta")
         await db.execute(
             "UPDATE scrape_runs SET finished_at=?, status=?, total_records=?, error_message=? WHERE id=?",
@@ -84,7 +101,10 @@ class Repository:
             (source_key,),
         ) as cursor:
             row = await cursor.fetchone()
-            return row["checkpoint"] if row else None
+            if row:
+                val = row["checkpoint"]
+                return str(val) if val is not None else None
+            return None
 
     async def get_run_checkpoint(self, run_id: int) -> str | None:
         """Fetch checkpoint for a specific run."""
@@ -93,7 +113,34 @@ class Repository:
             "SELECT checkpoint FROM scrape_runs WHERE id=?", (run_id,)
         ) as cursor:
             row = await cursor.fetchone()
-            return row["checkpoint"] if row else None
+            if row:
+                val = row["checkpoint"]
+                return str(val) if val is not None else None
+            return None
+
+    # ── Sync Stats ───────────────────────────────────────────────────
+
+    async def get_last_sync_at(self, sync_key: str = "chromadb") -> str:
+        """Get the last sync timestamp for a given target."""
+        db = self.get_db("meta")
+        async with db.execute(
+            "SELECT last_sync_at FROM sync_stats WHERE sync_key=?", (sync_key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return str(row["last_sync_at"])
+            return "1970-01-01T00:00:00Z"  # Epoch default
+
+    async def update_sync_at(self, sync_key: str = "chromadb", timestamp: str | None = None) -> None:
+        """Update the last sync timestamp to the given ISO string or now."""
+        val = timestamp or datetime.now(timezone.utc).isoformat()
+        db = self.get_db("meta")
+        await db.execute(
+            "INSERT INTO sync_stats (sync_key, last_sync_at) VALUES (?, ?) "
+            "ON CONFLICT(sync_key) DO UPDATE SET last_sync_at=excluded.last_sync_at",
+            (sync_key, val),
+        )
+        await db.commit()
 
     # ── Statutes ───────────────────────────────────────────────────────
 
@@ -240,41 +287,52 @@ class Repository:
 
     # ── Read helpers (for export) ──────────────────────────────────────
 
-    async def fetch_all_statutes(self) -> list[aiosqlite.Row]:
-        return await self.get_db("statutes").execute_fetchall(
-            "SELECT * FROM statutes ORDER BY source_key, id"
-        )
+    async def fetch_all_statutes(self, since: str | None = None) -> Sequence[aiosqlite.Row]:
+        query = "SELECT * FROM statutes"
+        params = []
+        if since:
+            query += " WHERE scraped_at > ?"
+            params.append(since)
+        query += " ORDER BY source_key, id"
+        return await self.get_db("statutes").execute_fetchall(query, params)
 
-    async def fetch_all_admin_rules(self) -> list[aiosqlite.Row]:
-        return await self.get_db("statutes").execute_fetchall(
-            "SELECT * FROM admin_rules ORDER BY id"
-        )
+    async def fetch_all_admin_rules(self, since: str | None = None) -> Sequence[aiosqlite.Row]:
+        query = "SELECT * FROM admin_rules"
+        params = []
+        if since:
+            query += " WHERE scraped_at > ?"
+            params.append(since)
+        query += " ORDER BY id"
+        return await self.get_db("statutes").execute_fetchall(query, params)
 
-    async def fetch_all_precedents(self) -> list[aiosqlite.Row]:
-        """Fetch all precedents from both sharded databases."""
-        rows_p = await self.get_db("precedents").execute_fetchall(
-            "SELECT * FROM precedents"
-        )
-        rows_d = await self.get_db("decisions").execute_fetchall(
-            "SELECT * FROM precedents"
-        )
+    async def fetch_all_precedents(self, since: str | None = None) -> Sequence[aiosqlite.Row]:
+        """Fetch all precedents from both sharded databases, optionally since a timestamp."""
+        query = "SELECT * FROM precedents"
+        params = []
+        if since:
+            query += " WHERE scraped_at > ?"
+            params.append(since)
+            
+        rows_p = await self.get_db("precedents").execute_fetchall(query, params)
+        rows_d = await self.get_db("decisions").execute_fetchall(query, params)
         all_rows = list(rows_p) + list(rows_d)
         # Re-sort in memory
         all_rows.sort(key=lambda r: (r["source_key"], r["decision_date"] or ""), reverse=True)
         return all_rows
 
-    async def count_records(self, table: str) -> int:
+    async def count_records(self, table: TableName) -> int:
         if table == "statutes" or table == "admin_rules":
             db = self.get_db("statutes")
             rows = await db.execute_fetchall(f"SELECT COUNT(*) as cnt FROM {table}")
         elif table == "precedents":
-            cnt_p = (await self.get_db("precedents").execute_fetchall("SELECT COUNT(*) as cnt FROM precedents"))[0]["cnt"]
-            cnt_d = (await self.get_db("decisions").execute_fetchall("SELECT COUNT(*) as cnt FROM precedents"))[0]["cnt"]
+            rows_p = await self.get_db("precedents").execute_fetchall("SELECT COUNT(*) as cnt FROM precedents")
+            rows_d = await self.get_db("decisions").execute_fetchall("SELECT COUNT(*) as cnt FROM precedents")
+            cnt_p = cast(int, rows_p[0]["cnt"])
+            cnt_d = cast(int, rows_d[0]["cnt"])
             return cnt_p + cnt_d
         elif table == "scrape_runs":
             db = self.get_db("meta")
             rows = await db.execute_fetchall("SELECT COUNT(*) as cnt FROM scrape_runs")
         else:
-            # Fallback
             return 0
-        return rows[0]["cnt"]
+        return cast(int, rows[0]["cnt"])

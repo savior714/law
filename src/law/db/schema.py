@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS integrity_log (
     hash_match      INTEGER NOT NULL,
     details         TEXT
 );
+
+-- Vector DB Sync Tracking
+CREATE TABLE IF NOT EXISTS sync_stats (
+    sync_key        TEXT PRIMARY KEY,
+    last_sync_at    TEXT NOT NULL
+);
 """
 
 DDL_STATUTES = """

@@ -31,7 +31,7 @@ from law.config import (
     SOURCES,
 )
 from law.models.schemas import Precedent
-from law.scrapers.base import BaseScraper
+from law.scrapers.base import BaseScraper, ScrapedItem
 from law.utils.text import clean_html_text
 
 logger = logging.getLogger(__name__)
@@ -96,18 +96,38 @@ def _parse_date(text: str | None) -> date | None:
 
 
 def _extract_section_html(html: str, marker: str) -> str | None:
-    """HTML 본문에서 특정 마커 섹션 추출 및 정규화."""
+    """HTML 본문에서 특정 마커 섹션 추출 및 정규화.
+    
+    마커의 공백이나 대괄호 여부에 유연하게 대응한다.
+    """
     if not html:
         return None
+    
     soup = BeautifulSoup(html, "lxml")
-    # soup.get_text("\n")을 쓰되, clean_html_text로 문단 병합 수행
+    # clean_html_text를 거치면 마커 주변의 공백이 정규화되므로 
+    # 정규식에서도 공백 유연성을 확보한다.
     full = clean_html_text(soup.get_text("\n"))
     
-    # 마커 추출 패턴 (【마커】 형식 대응)
-    pattern = rf"【{re.escape(marker)}】(.*?)(?=【[^】]+】|$)"
-    m = re.search(pattern, full, re.DOTALL)
-    if m:
-        return m.group(1).strip()
+    # 1. 기호를 포함한 엄격한 매칭 (【 마커 】, [ 마커 ] 등)
+    # 마커 내부의 공백 허용: '판 결 요 지' -> '판\\s*결\\s*요\\s*지'
+    spaced_marker = "\\s*".join(list(marker))
+    
+    # 순차적으로 시도할 패턴들
+    patterns = [
+        # 대괄호 포함 (【...】, [...])
+        rf"[【\[(]\s*{spaced_marker}\s*[】\])]\s*(.*?)(?=[【\[(][^】\])]+[】\])]|$)",
+        # 대괄호 없음 (시작 지점 또는 새 줄)
+        rf"(?:^|\n)\s*{spaced_marker}\s*(?:\n|:)\s*(.*?)(?=\n\s*(?:【|\[|[가-하]\.|\d+\.|$))",
+    ]
+    
+    for pat in patterns:
+        m = re.search(pat, full, re.DOTALL)
+        if m:
+            content = m.group(1).strip()
+            if content:
+                # 다음 마커 전까지만 잘라내었는지 확인 (이미 regex lookahead로 처리됨)
+                return content
+            
     return None
 
 
@@ -123,23 +143,24 @@ class ScourtPrecedentScraper(BaseScraper):
     async def _handle_initial_load(self) -> None:
         """포털 접속 및 '형사' 필터 활성화."""
         await self.safe_navigate(self.source_url)
-        logger.info("%s: WebSquare5 초기화 대기 (%ds)...", self.name, SCOURT_INIT_WAIT_SEC)
-        await asyncio.sleep(SCOURT_INIT_WAIT_SEC)
-
+        logger.info("%s: WebSquare5 초기화 대기 및 요소 탐색 중...", self.name)
+        
         # 1. 사건종류 그룹 확장 (필요 시)
         try:
-            logger.info("%s: '사건종류' 트리 확장 시도...", self.name)
-            group_el = await self.page.wait_for_selector(_SEL_TREE_CASE_TYPE, timeout=5000)
+            logger.info("%s: '사건종류' 트리(_SEL_TREE_CASE_TYPE) 대기 중...", self.name)
+            # 최대 20초 대기하되 나타나면 즉시 진행
+            group_el = await self.page.wait_for_selector(_SEL_TREE_CASE_TYPE, timeout=20000)
             if group_el:
+                logger.info("%s: 초기화 완료 확인 (요소 발견). 확장 시도...", self.name)
                 await group_el.click()
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(1.5) # UI 트리가 펼쳐질 시간 확보
         except Exception:
             logger.debug("%s: '사건종류' 트리 확장 생략 또는 실패", self.name)
 
         # 2. '형사' 카테고리 클릭
         logger.info("%s: '형사' 카테고리 선택 시도...", self.name)
         try:
-            el = await self.page.wait_for_selector(_SEL_TREE_CRIMINAL, timeout=10000)
+            logger.info("%s: _SEL_TREE_CRIMINAL 대기 중...", self.name); el = await self.page.wait_for_selector(_SEL_TREE_CRIMINAL, timeout=15000)
             if el:
                 await el.scroll_into_view_if_needed()
                 # 텍스트 확인
@@ -226,7 +247,7 @@ class ScourtPrecedentScraper(BaseScraper):
             logger.warning("%s: 총 건수 추출 중 예외 발생 (무시하고 진행): %s", self.name, e)
             return 0
 
-    async def scrape(self) -> AsyncGenerator[Precedent, None]:
+    async def scrape(self) -> AsyncGenerator[ScrapedItem, None]:
         """UI와 API를 조합하여 형사 판례를 수집한다."""
         await self._handle_initial_load()
 
@@ -286,7 +307,12 @@ class ScourtPrecedentScraper(BaseScraper):
                 # 2. 상세 정보 API 호출 (브라우저 내 fetch)
                 prec = await self._build_precedent(jis_srno, full_text)
                 if prec:
-                    yield prec
+                    # RAG 품질 향상을 위해 관련 키워드 기반 2차 필터링
+                    content_to_check = f"{prec.case_name or ''} {prec.holding or ''} {prec.summary or ''} {prec.full_text or ''}"
+                    if self.is_relevant(content_to_check):
+                        yield prec
+                    else:
+                        logger.debug("%s: skip irrelevant case: %s", self.name, prec.case_number)
 
                 global_idx += 1
                 await asyncio.sleep(SCOURT_DETAIL_DELAY_SEC)
@@ -352,9 +378,16 @@ class ScourtPrecedentScraper(BaseScraper):
         summary = _extract_section_html(html_body, "판결요지")
         full_text = (
             _extract_section_html(html_body, "전 문")
-            or _extract_section_html(html_body, "이       유")
             or _extract_section_html(html_body, "이유")
+            or _extract_section_html(html_body, "판결")
+            or _extract_section_html(html_body, "주문")
         )
+
+        # 만약 섹션 추출이 모두 실패했으나 본문이 충분히 길다면 전체 보존
+        if not full_text and len(html_body) > 200:
+            soup = BeautifulSoup(html_body, "lxml")
+            full_text = clean_html_text(soup.get_text("\n"))
+
         ref_statutes_raw = _extract_section_html(html_body, "참조조문") or ""
         ref_cases_raw = _extract_section_html(html_body, "참조판례") or ""
 
